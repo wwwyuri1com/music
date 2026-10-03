@@ -22,7 +22,17 @@
     playlist: $('#playlist'),
     closePlaylist: $('#close-playlist'),
     trackList: $('#track-list'),
-    status: $('#status')
+    status: $('#status'),
+    metaDescription: $('#meta-description'),
+    canonical: $('#canonical'),
+    ogTitle: $('#og-title'),
+    ogDescription: $('#og-description'),
+    ogUrl: $('#og-url'),
+    ogImage: $('#og-image'),
+    twitterTitle: $('#twitter-title'),
+    twitterDescription: $('#twitter-description'),
+    twitterImage: $('#twitter-image'),
+    structuredData: $('#structured-data')
   };
 
   const ICONS = {
@@ -30,8 +40,14 @@
     pause: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.75 5.5A1.25 1.25 0 0 1 8 4.25h1.5a1.25 1.25 0 0 1 1.25 1.25v13A1.25 1.25 0 0 1 9.5 19.75H8a1.25 1.25 0 0 1-1.25-1.25v-13Zm6.5 0a1.25 1.25 0 0 1 1.25-1.25H16a1.25 1.25 0 0 1 1.25 1.25v13A1.25 1.25 0 0 1 16 19.75h-1.5a1.25 1.25 0 0 1-1.25-1.25v-13Z"/></svg>'
   };
 
+  const SITE_ROOT = 'https://music.yuri1.com/';
+  const INDEX_URL = `${SITE_ROOT}index.html`;
+  const TITLE_SUFFIX = 'YURI NO1 Music – Girls Love ♡ AI Music from Novels';
+  const INDEX_DESCRIPTION = 'Original YURI NO1 AI music inspired by Girls Love novels, characters, and stories.';
+
   let tracks = [];
   let currentIndex = 0;
+  const playedTrackKeys = new Set();
 
   const REPEAT_ONE_KEY = 'yuri1_music_repeat_one';
   let repeatOne = localStorage.getItem(REPEAT_ONE_KEY) === '1';
@@ -49,7 +65,9 @@
   }
   function musicId(track) {
     const key = sourceKey(track.ID);
-    return key ? `M-P${key}` : '';
+    if (key) return `M-P${key}`;
+    const raw = String(track.ID || '').trim();
+    return raw ? `M-${raw}` : '';
   }
   function coverPath(track) {
     return `Music-Img/${encodeURIComponent(track.ID)}%20(${track.Img}).jpg`;
@@ -64,6 +82,97 @@
     const key = sourceKey(track.ID);
     return key ? `https://www.yuri1.com/Post.html?id=P${key}` : '';
   }
+  function absoluteUrl(path) {
+    return new URL(path, SITE_ROOT).href;
+  }
+  function trackUrl(track) {
+    const u = new URL(INDEX_URL);
+    u.searchParams.set('id', musicId(track));
+    u.searchParams.set('track', String(track.Img));
+    return u.href;
+  }
+  function trackKey(track) {
+    return `${musicId(track)}:${track.Img}`;
+  }
+  function trackDescription(track) {
+    const title = track.TITLE || 'Untitled';
+    const story = track.STORY || 'YURI NO1';
+    return `${title} — original YURI NO1 AI music inspired by ${story}, connecting Girls Love novels, characters, and sound.`;
+  }
+  function setMeta(el, value, attr = 'content') {
+    if (el) el.setAttribute(attr, value);
+  }
+  function setStructuredData(data) {
+    if (els.structuredData) els.structuredData.textContent = JSON.stringify(data);
+  }
+  function applyIndexSeo() {
+    document.title = TITLE_SUFFIX;
+    setMeta(els.metaDescription, INDEX_DESCRIPTION);
+    setMeta(els.canonical, SITE_ROOT, 'href');
+    setMeta(els.ogTitle, TITLE_SUFFIX);
+    setMeta(els.ogDescription, INDEX_DESCRIPTION);
+    setMeta(els.ogUrl, SITE_ROOT);
+    setMeta(els.twitterTitle, TITLE_SUFFIX);
+    setMeta(els.twitterDescription, INDEX_DESCRIPTION);
+    setStructuredData({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'YURI NO1 Music',
+      url: SITE_ROOT,
+      description: INDEX_DESCRIPTION
+    });
+  }
+  function applyTrackSeo(track) {
+    const title = `${track.TITLE || 'Untitled'} \\ ${TITLE_SUFFIX}`;
+    const description = trackDescription(track);
+    const url = trackUrl(track);
+    const image = absoluteUrl(coverPath(track));
+    const audio = absoluteUrl(audioPath(track));
+    const storyUrl = postLink(track);
+
+    document.title = title;
+    setMeta(els.metaDescription, description);
+    setMeta(els.canonical, url, 'href');
+    setMeta(els.ogTitle, title);
+    setMeta(els.ogDescription, description);
+    setMeta(els.ogUrl, url);
+    setMeta(els.ogImage, image);
+    setMeta(els.twitterTitle, title);
+    setMeta(els.twitterDescription, description);
+    setMeta(els.twitterImage, image);
+
+    const schema = {
+      '@context': 'https://schema.org',
+      '@type': 'MusicRecording',
+      name: track.TITLE || 'Untitled',
+      url,
+      image,
+      contentUrl: audio,
+      description,
+      byArtist: {
+        '@type': 'Organization',
+        name: 'YURI NO1',
+        url: 'https://www.yuri1.com/'
+      }
+    };
+    if (track.STORY) {
+      schema.isBasedOn = storyUrl
+        ? { '@type': 'CreativeWork', name: track.STORY, url: storyUrl }
+        : { '@type': 'CreativeWork', name: track.STORY };
+    }
+    setStructuredData(schema);
+  }
+  function sendGaEvent(name, track, extra = {}) {
+    if (typeof window.gtag !== 'function' || !track) return;
+    window.gtag('event', name, {
+      music_title: track.TITLE || 'Untitled',
+      music_id: musicId(track),
+      music_track: Number(track.Img),
+      music_story: track.STORY || '',
+      music_theme: track.Theme || '',
+      ...extra
+    });
+  }
   function fmt(seconds) {
     if (!Number.isFinite(seconds)) return '0:00';
     seconds = Math.max(0, Math.floor(seconds));
@@ -74,13 +183,11 @@
     els.status.hidden = !text;
   }
   function updateUrl(track, replace = true) {
-    const u = new URL(location.href);
-    u.searchParams.set('id', musicId(track));
-    u.searchParams.set('track', String(track.Img));
-    history[replace ? 'replaceState' : 'pushState']({}, '', u);
+    const u = new URL(trackUrl(track));
+    history[replace ? 'replaceState' : 'pushState']({}, '', `${u.pathname}${u.search}`);
   }
 
-  function setTrack(index, { autoplay = false, updateHistory = true } = {}) {
+  function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true } = {}) {
     if (!tracks.length) return;
     currentIndex = (index + tracks.length) % tracks.length;
     const t = tracks[currentIndex];
@@ -112,6 +219,8 @@
     els.storyLink.setAttribute('aria-disabled', link ? 'false' : 'true');
 
     if (updateHistory) updateUrl(t, true);
+    if (updateSeo) applyTrackSeo(t);
+    if (trackView) sendGaEvent('music_track_view', t);
     renderPlaylist();
 
     if (autoplay) {
@@ -156,13 +265,34 @@
     els.app.classList.add('playing');
     els.play.innerHTML = ICONS.pause;
     els.play.setAttribute('aria-label', 'Pause');
+    const t = tracks[currentIndex];
+    const key = t ? trackKey(t) : '';
+    if (key && !playedTrackKeys.has(key)) {
+      playedTrackKeys.add(key);
+      sendGaEvent('music_play', t);
+    }
   });
   els.audio.addEventListener('pause', () => {
     els.app.classList.remove('playing');
     els.play.innerHTML = ICONS.play;
     els.play.setAttribute('aria-label', 'Play');
   });
-  els.audio.addEventListener('loadedmetadata', () => { els.duration.textContent = fmt(els.audio.duration); });
+  els.audio.addEventListener('loadedmetadata', () => {
+    els.duration.textContent = fmt(els.audio.duration);
+    const q = new URLSearchParams(location.search);
+    if (q.get('id') || q.get('track')) {
+      const t = tracks[currentIndex];
+      if (t && els.structuredData && Number.isFinite(els.audio.duration)) {
+        try {
+          const data = JSON.parse(els.structuredData.textContent || '{}');
+          if (data['@type'] === 'MusicRecording') {
+            data.duration = `PT${Math.max(0, Math.round(els.audio.duration))}S`;
+            setStructuredData(data);
+          }
+        } catch (_) {}
+      }
+    }
+  });
   els.audio.addEventListener('timeupdate', () => {
     els.current.textContent = fmt(els.audio.currentTime);
     const p = els.audio.duration ? (els.audio.currentTime / els.audio.duration) * 100 : 0;
@@ -170,6 +300,8 @@
     els.seek.style.setProperty('--p', `${p}%`);
   });
   els.audio.addEventListener('ended', () => {
+    const t = tracks[currentIndex];
+    sendGaEvent('music_complete', t);
     if (repeatOne) {
       els.audio.currentTime = 0;
       els.audio.play().catch(() => {});
@@ -210,12 +342,20 @@
 
       const q = new URLSearchParams(location.search);
       const requestedId = q.get('id');
-      const requestedTrack = Number(q.get('track'));
+      const requestedTrackRaw = q.get('track');
+      const requestedTrack = requestedTrackRaw !== null ? Number(requestedTrackRaw) : null;
+      const hasTrackQuery = Boolean(requestedId || requestedTrackRaw !== null);
       const idx = tracks.findIndex(t =>
         (!requestedId || musicId(t) === requestedId) &&
-        (!requestedTrack || Number(t.Img) === requestedTrack)
+        (requestedTrack === null || Number(t.Img) === requestedTrack)
       );
-      setTrack(idx >= 0 ? idx : 0, { updateHistory: true });
+
+      if (hasTrackQuery) {
+        setTrack(idx >= 0 ? idx : 0, { updateHistory: false, updateSeo: true, trackView: true });
+      } else {
+        applyIndexSeo();
+        setTrack(0, { updateHistory: false, updateSeo: false, trackView: false });
+      }
       setStatus('');
     } catch (err) {
       console.error(err);
