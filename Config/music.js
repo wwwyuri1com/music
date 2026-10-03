@@ -17,6 +17,7 @@
     prev: $('#prev'),
     next: $('#next'),
     storyLink: $('#story-link'),
+    repeatOne: $('#repeat-one'),
     playlistBtn: $('#playlist-btn'),
     playlist: $('#playlist'),
     closePlaylist: $('#close-playlist'),
@@ -31,6 +32,16 @@
 
   let tracks = [];
   let currentIndex = 0;
+
+  const REPEAT_ONE_KEY = 'yuri1_music_repeat_one';
+  let repeatOne = localStorage.getItem(REPEAT_ONE_KEY) === '1';
+
+  function renderRepeatOne() {
+    if (!els.repeatOne) return;
+    els.repeatOne.setAttribute('aria-pressed', repeatOne ? 'true' : 'false');
+    els.repeatOne.setAttribute('aria-label', repeatOne ? 'Single-track loop on' : 'Single-track loop off');
+    els.repeatOne.title = repeatOne ? 'Single-track loop: on' : 'Single-track loop: off';
+  }
 
   function sourceKey(id) {
     const m = String(id || '').match(/^(\d{8}-\d{2})/);
@@ -78,7 +89,13 @@
     els.title.textContent = t.TITLE || 'Untitled';
     els.story.textContent = t.STORY || '';
     els.theme.textContent = t.Theme || '';
-    els.cover.style.backgroundImage = `url("${coverPath(t)}")`;
+    const coverUrl = coverPath(t);
+    els.cover.style.backgroundImage = `url("${coverUrl}")`;
+
+    // Desktop side background:
+    // paint the same cover on <body>; CSS copies/blurs it behind the 360px player.
+    document.body.style.backgroundImage = `url("${coverUrl}")`;
+    document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
     els.mascot.src = mascotPath(t);
     els.mascot.onerror = () => { els.mascot.onerror = null; els.mascot.src = 'Player-Img/_default.png'; };
     els.audio.src = audioPath(t);
@@ -152,11 +169,24 @@
     els.seek.value = p;
     els.seek.style.setProperty('--p', `${p}%`);
   });
-  els.audio.addEventListener('ended', () => setTrack(currentIndex + 1, { autoplay: true }));
+  els.audio.addEventListener('ended', () => {
+    if (repeatOne) {
+      els.audio.currentTime = 0;
+      els.audio.play().catch(() => {});
+      return;
+    }
+    setTrack(currentIndex + 1, { autoplay: true });
+  });
   els.seek.addEventListener('input', () => {
     const p = Number(els.seek.value);
     els.seek.style.setProperty('--p', `${p}%`);
     if (els.audio.duration) els.audio.currentTime = (p / 100) * els.audio.duration;
+  });
+
+  els.repeatOne?.addEventListener('click', () => {
+    repeatOne = !repeatOne;
+    localStorage.setItem(REPEAT_ONE_KEY, repeatOne ? '1' : '0');
+    renderRepeatOne();
   });
 
   els.playlistBtn.addEventListener('click', () => els.playlist.classList.toggle('open'));
@@ -166,6 +196,8 @@
       e.preventDefault(); togglePlay();
     }
   });
+
+  renderRepeatOne();
 
   async function boot() {
     setStatus('Loading music…');

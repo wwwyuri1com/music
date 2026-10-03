@@ -947,3 +947,354 @@ button {
       .01ms !important;
   }
 }
+
+/* =========================================================
+   YURI1 MUSIC — FIXED 360PX VERTICAL PLAYER + BLURRED SIDES
+   Final desktop layout override
+   ========================================================= */
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  background: #08080c;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  isolation: isolate;
+
+  /* JS writes the current cover here as a fallback/source
+     for the blurred desktop side background. */
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+/* ---------------------------------------------------------
+   DESKTOP BLURRED COVER BACKGROUND
+   JS paints the active cover on <body>.
+   body::before copies it, blurs it, and body::after darkens it.
+   --------------------------------------------------------- */
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+body::before {
+  z-index: 0;
+
+  /*
+    Copy the current cover painted on <body>.
+    Positive z-index keeps it visible instead of falling
+    behind the root background.
+  */
+  background-image: inherit;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+
+  filter:
+    blur(15px)
+    brightness(1.2)
+    saturate(.92);
+
+  transform: scale(1.12);
+}
+
+body::after {
+  z-index: 1;
+  background:
+    radial-gradient(
+      circle at 50% 42%,
+      rgba(0,0,0,.06) 0%,
+      rgba(0,0,0,.20) 44%,
+      rgba(0,0,0,.56) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(5,5,8,.14) 0%,
+      rgba(5,5,8,.24) 55%,
+      rgba(5,5,8,.48) 100%
+    );
+}
+
+/* ---------------------------------------------------------
+   MAIN APP
+   --------------------------------------------------------- */
+
+.music-app {
+  position: relative;
+  z-index: 2;
+  width: min(100vw, 360px);
+  max-width: 360px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  isolation: isolate;
+  overflow: hidden;
+  background: #09090d;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.045),
+    0 0 72px rgba(0,0,0,.50);
+}
+
+/* Keep the real cover inside the vertical player */
+.cover-layer {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background: #111 center / cover no-repeat;
+  transform: scale(1.035);
+  transition:
+    opacity .45s ease,
+    background-image .45s ease;
+}
+
+/* ---------------------------------------------------------
+   TOP BAR
+   --------------------------------------------------------- */
+
+.topbar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 5;
+  width: 100%;
+  padding:
+    max(18px, env(safe-area-inset-top))
+    14px
+    0;
+}
+
+/* ---------------------------------------------------------
+   STAGE
+   --------------------------------------------------------- */
+
+.stage {
+  width: 100%;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  padding:
+    72px
+    14px
+    138px;
+}
+
+/* Keep the user's current "title above disc" layout */
+.hero {
+  align-self: flex-end;
+  justify-self: center;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  padding-top: 0;
+}
+
+/* ---------------------------------------------------------
+   DISC
+   --------------------------------------------------------- */
+
+.disc-wrap {
+  width: min(58vw, 220px);
+  max-width: 220px;
+  aspect-ratio: 1;
+}
+
+/* ---------------------------------------------------------
+   TRACK COPY
+   --------------------------------------------------------- */
+
+.track-copy {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 14px;
+  text-align: center;
+}
+
+.track-title {
+  font-size: clamp(28px, 9vw, 40px);
+}
+
+.track-meta {
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------
+   BOTTOM PLAYER
+   --------------------------------------------------------- */
+
+.player-shell {
+  position: fixed;
+  z-index: 6;
+  left: 50%;
+  right: auto;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: min(100vw, 360px);
+  max-width: 360px;
+
+  padding:
+    12px
+    14px
+    max(12px, env(safe-area-inset-bottom))
+    14px;
+
+  border: 0;
+  border-top: 1px solid var(--line);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255,255,255,.085),
+      rgba(255,255,255,.025)
+    ),
+    rgba(12,12,18,.40);
+
+  backdrop-filter:
+    blur(24px)
+    saturate(140%);
+  -webkit-backdrop-filter:
+    blur(24px)
+    saturate(140%);
+
+  box-shadow:
+    0 -16px 55px rgba(0,0,0,.28),
+    inset 0 1px rgba(255,255,255,.12);
+}
+
+.player-shell .timeline,
+.player-shell .controls {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.play-btn {
+  width: 54px;
+  height: 54px;
+}
+
+.control-btn {
+  width: 38px;
+  height: 38px;
+}
+
+/* ---------------------------------------------------------
+   PLAYLIST
+   --------------------------------------------------------- */
+
+.playlist {
+  position: fixed;
+  z-index: 7;
+
+  left: 50%;
+  right: auto;
+  bottom: 118px;
+
+  width: min(calc(100vw - 20px), 340px);
+  max-width: 340px;
+  margin: 0;
+
+  transform:
+    translateX(-50%)
+    translateY(calc(100% + 30px));
+
+  opacity: 0;
+  pointer-events: none;
+}
+
+.playlist.open {
+  transform:
+    translateX(-50%)
+    translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------
+   PHONE
+   --------------------------------------------------------- */
+
+@media (max-width: 360px) {
+  body {
+    display: block;
+  }
+
+  body::before,
+  body::after {
+    display: none;
+  }
+
+  .music-app,
+  .player-shell {
+    width: 100vw;
+    max-width: none;
+  }
+
+  .playlist {
+    width: calc(100vw - 20px);
+    max-width: none;
+  }
+}
+
+/* ---------------------------------------------------------
+   SHORT SCREENS
+   --------------------------------------------------------- */
+
+@media (max-height: 700px) {
+  .disc-wrap {
+    width: min(34vh, 190px);
+  }
+
+  .track-copy {
+    margin-top: 8px;
+  }
+
+  .track-title {
+    font-size: 28px;
+  }
+
+  .stage {
+    padding-top: 62px;
+    padding-bottom: 126px;
+  }
+
+  .player-shell {
+    padding-top: 10px;
+  }
+
+  .playlist {
+    bottom: 112px;
+  }
+}
+
+
+
+/* =========================================================
+   SINGLE-TRACK LOOP — added to current Music-Css version
+   ========================================================= */
+
+.repeat-one-btn {
+  color: rgba(255,255,255,.82);
+}
+
+.repeat-one-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: rgba(250,102,153,.13);
+  box-shadow: inset 0 0 0 1px rgba(250,102,153,.28);
+}
+
+.repeat-one-btn[aria-pressed="true"]:hover {
+  background: rgba(250,102,153,.18);
+}
