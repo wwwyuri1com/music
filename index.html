@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#09090d">
+  <title>YURI1 Music</title>
+  <meta name="description" content="Original music inspired by YURI1 stories and characters.">
+  <link rel="stylesheet" href="Music-Css/music.css">
+</head>
+<body>
+  <main class="music-app">
+    <div class="cover-layer" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="https://www.yuri1.com">© YURI NO1</a><a class="brand" href="index.html">music.yuri1.com</a>
+      <button id="playlist-btn" class="icon-btn" type="button" aria-label="Open track list">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h12M4 12h12M4 17h8"/><path d="M19 15v5m0-5 2-1v5"/></svg>
+      </button>
+    </header>
+
+    <section class="stage">
+      <div class="hero">
+        <div class="disc-wrap" aria-hidden="true">
+          <div class="disc-halo"></div>
+          <img id="mascot" class="mascot" src="Player-Img/_default.png" alt="">
+        </div>
+        <div class="track-copy">
+          <h1 id="track-title" class="track-title">YURI1 Music</h1>
+          <p class="track-meta"><strong id="track-theme">—</strong> · <span id="track-story">—</span></p>
+        </div>
+      </div>
+
+      <div class="player-shell">
+        <div class="timeline">
+          <span id="current-time" class="time">0:00</span>
+          <input id="seek" class="seek" type="range" min="0" max="100" step="0.05" value="0" aria-label="Seek">
+          <span id="duration" class="time">0:00</span>
+        </div>
+
+        <div class="controls">
+          <div class="controls-side">
+            <a id="story-link" class="control-btn story-link" href="#" target="_blank" rel="noopener" aria-label="Open story">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="m10 14 11-11"/><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/></svg>
+            </a>
+          </div>
+
+          <div class="controls-side">
+            <button id="prev" class="control-btn" type="button" aria-label="Previous track">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM18.2 5.7a1 1 0 0 1 1.55.83v10.94a1 1 0 0 1-1.55.83l-7.64-5.47a1 1 0 0 1 0-1.66L18.2 5.7Z"/></svg>
+            </button>
+            <button id="play" class="control-btn play-btn" type="button" aria-label="Play">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.3a1 1 0 0 1 1.53-.84l9.1 6.2a1.6 1.6 0 0 1 0 2.66l-9.1 6.2A1 1 0 0 1 8.2 18.7V5.3Z"/></svg>
+            </button>
+            <button id="next" class="control-btn" type="button" aria-label="Next track">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5.8 5.7a1 1 0 0 0-1.55.83v10.94a1 1 0 0 0 1.55.83l7.64-5.47a1 1 0 0 0 0-1.66L5.8 5.7Z"/></svg>
+            </button>
+          </div>
+
+          <div class="controls-side right"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="playlist" class="playlist" aria-label="Track list">
+      <div class="playlist-head">
+        <strong>Tracks</strong>
+        <button id="close-playlist" class="icon-btn" type="button" aria-label="Close track list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div id="track-list" class="track-list"></div>
+    </aside>
+
+    <div id="status" class="status" hidden></div>
+    <audio id="audio" preload="metadata"></audio>
+  </main>
+
+  <script src="Music-Js/music.js" defer></script>
+</body>
+</html>
