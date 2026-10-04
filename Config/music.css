@@ -1203,11 +1203,15 @@ body::after {
 
   left: 50%;
   right: auto;
+  top: clamp(78px, 12vh, 108px);
   bottom: 118px;
 
   width: min(calc(100vw - 20px), 340px);
   max-width: 340px;
   margin: 0;
+
+  display: grid;
+  grid-template-rows: auto auto 1fr;
 
   transform:
     translateX(-50%)
@@ -1278,6 +1282,7 @@ body::after {
   }
 
   .playlist {
+    top: clamp(72px, 10vh, 92px);
     bottom: 112px;
   }
 }
@@ -1400,9 +1405,10 @@ body::after {
   z-index: 8;
   left: 50%;
   right: auto;
+  top: clamp(78px, 12vh, 108px);
   bottom: 118px;
   width: min(calc(100vw - 20px), 420px);
-  height: min(68vh, 620px);
+  height: auto;
   margin: 0;
   padding: 12px;
   border: 1px solid var(--line);
@@ -1476,7 +1482,7 @@ body::after {
 .lyrics-cue {
   margin-top: 20px;
   margin-bottom: 8px;
-  color:#FA669990;
+  color: rgba(255,255,255,.56);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -1508,8 +1514,8 @@ body::after {
 
 @media (max-height: 700px) {
   .lyrics-panel {
+    top: clamp(72px, 10vh, 92px);
     bottom: 112px;
-    height: min(64vh, 500px);
   }
 }
 
