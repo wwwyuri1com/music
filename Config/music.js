@@ -24,6 +24,12 @@
     playlist: $('#playlist'),
     closePlaylist: $('#close-playlist'),
     trackList: $('#track-list'),
+    playlistFilters: $$('.playlist-filter'),
+    lyricsBtn: $('#lyrics-btn'),
+    lyricsPanel: $('#lyrics-panel'),
+    closeLyrics: $('#close-lyrics'),
+    lyricsContent: $('#lyrics-content'),
+    lyricsTrackTitle: $('#lyrics-track-title'),
     status: $('#status'),
     metaDescription: $('#meta-description'),
     canonical: $('#canonical'),
@@ -56,6 +62,8 @@
 
   let tracks = [];
   let currentIndex = 0;
+  let playlistFilter = 'All';
+  let lyricsLoadSerial = 0;
   const playedTrackKeys = new Set();
 
   const REPEAT_ONE_KEY = 'yuri1_music_repeat_one';
@@ -84,10 +92,18 @@
   function audioPath(track) {
     return `Music-Mp3/${encodeURIComponent(track.ID)}%20(${track.Img}).mp3`;
   }
+  function lyricsPath(track) {
+    return `Music-Text/${encodeURIComponent(track.ID)}%20(${track.Img}).txt`;
+  }
+  function trackType(track) {
+    return String(track?.Type || 'IP').trim().toLowerCase() === 'shorts' ? 'Shorts' : 'IP';
+  }
   function mascotPath(track) {
     return `Player-Img/${encodeURIComponent(track.Theme || '_default')}.png`;
   }
   function postLink(track) {
+    if (track?.Link) return String(track.Link);
+    if (trackType(track) === 'Shorts') return '';
     const key = sourceKey(track.ID);
     return key ? `https://www.yuri1.com/Post.html?id=P${key}` : '';
   }
@@ -196,6 +212,94 @@
     history[replace ? 'replaceState' : 'pushState']({}, '', `${u.pathname}${u.search}`);
   }
 
+  function lyricsPanelOpen() {
+    return Boolean(els.lyricsPanel?.classList.contains('open'));
+  }
+
+  function renderLyricsText(text) {
+    if (!els.lyricsContent) return;
+    els.lyricsContent.replaceChildren();
+
+    const cleaned = String(text || '').replace(/^\uFEFF/, '').trim();
+    if (!cleaned) {
+      const message = document.createElement('div');
+      message.className = 'lyrics-message';
+      message.textContent = 'Lyrics unavailable.';
+      els.lyricsContent.appendChild(message);
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    const lines = cleaned.split(/\r?\n/);
+
+    for (const rawLine of lines) {
+      const line = rawLine.trimEnd();
+
+      if (!line.trim()) {
+        const blank = document.createElement('div');
+        blank.className = 'lyrics-blank';
+        blank.setAttribute('aria-hidden', 'true');
+        fragment.appendChild(blank);
+        continue;
+      }
+
+      const row = document.createElement('div');
+      const trimmed = line.trim();
+      const isCue = /^\[[^\]]+\]$/.test(trimmed);
+      row.className = isCue ? 'lyrics-cue' : 'lyrics-line';
+      row.textContent = line;
+      fragment.appendChild(row);
+    }
+
+    els.lyricsContent.appendChild(fragment);
+  }
+
+  function renderLyricsMessage(text) {
+    if (!els.lyricsContent) return;
+    els.lyricsContent.replaceChildren();
+    const message = document.createElement('div');
+    message.className = 'lyrics-message';
+    message.textContent = text;
+    els.lyricsContent.appendChild(message);
+  }
+
+  async function loadLyrics(track) {
+    if (!els.lyricsContent || !track) return;
+    const serial = ++lyricsLoadSerial;
+    els.lyricsContent.scrollTop = 0;
+    if (els.lyricsTrackTitle) els.lyricsTrackTitle.textContent = track.TITLE || 'Untitled';
+    renderLyricsMessage('Loading lyrics…');
+
+    try {
+      const url = await versionedAsset(lyricsPath(track));
+      const r = await fetch(url, { cache: 'no-cache' });
+      if (!r.ok) throw new Error(`Lyrics HTTP ${r.status}`);
+      const text = await r.text();
+      if (serial !== lyricsLoadSerial) return;
+      renderLyricsText(text);
+      els.lyricsContent.scrollTop = 0;
+    } catch (_) {
+      if (serial !== lyricsLoadSerial) return;
+      renderLyricsMessage('Lyrics unavailable.');
+      els.lyricsContent.scrollTop = 0;
+    }
+  }
+
+  function openLyrics() {
+    if (!els.lyricsPanel || !tracks.length) return;
+    els.playlist?.classList.remove('open');
+    els.lyricsPanel.classList.add('open');
+    els.lyricsPanel.setAttribute('aria-hidden', 'false');
+    loadLyrics(tracks[currentIndex]);
+  }
+
+  function closeLyrics() {
+    if (!els.lyricsPanel) return;
+    els.lyricsPanel.classList.remove('open');
+    els.lyricsPanel.setAttribute('aria-hidden', 'true');
+    if (els.lyricsContent) els.lyricsContent.scrollTop = 0;
+  }
+
   function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true } = {}) {
     if (!tracks.length) return;
     currentIndex = (index + tracks.length) % tracks.length;
@@ -254,19 +358,33 @@
     if (updateSeo) applyTrackSeo(t);
     if (trackView) sendGaEvent('music_track_view', t);
     renderPlaylist();
+    if (lyricsPanelOpen()) loadLyrics(t);
 
   }
 
   function renderPlaylist() {
     els.trackList.innerHTML = '';
-    tracks.forEach((t, i) => {
+    const visible = tracks
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => playlistFilter === 'All' || trackType(t) === playlistFilter);
+
+    if (!visible.length) {
+      const empty = document.createElement('div');
+      empty.className = 'track-list-empty';
+      empty.textContent = `No ${playlistFilter} tracks yet.`;
+      els.trackList.appendChild(empty);
+      return;
+    }
+
+    visible.forEach(({ t, i }) => {
       const btn = document.createElement('button');
+      const type = trackType(t);
       btn.type = 'button';
       btn.className = `track-item${i === currentIndex ? ' active' : ''}`;
       btn.innerHTML = `
         <img alt="" src="${coverPath(t)}">
         <span><b>${escapeHtml(t.TITLE || 'Untitled')}</b><span>${escapeHtml(t.STORY || '')}</span></span>
-        <span class="theme">${escapeHtml(t.Theme || '')}</span>`;
+        <span class="track-side"><span class="theme">${escapeHtml(t.Theme || '')}</span><span class="track-type">${type}</span></span>`;
       const thumb = btn.querySelector('img');
       versionedAsset(coverPath(t)).then(url => {
         if (thumb?.isConnected) thumb.src = url;
@@ -496,8 +614,29 @@
     renderRepeatOne();
   });
 
-  els.playlistBtn.addEventListener('click', () => els.playlist.classList.toggle('open'));
+  els.playlistBtn.addEventListener('click', () => {
+    closeLyrics();
+    els.playlist.classList.toggle('open');
+  });
   els.closePlaylist.addEventListener('click', () => els.playlist.classList.remove('open'));
+
+  els.playlistFilters.forEach(btn => {
+    btn.addEventListener('click', () => {
+      playlistFilter = btn.dataset.trackFilter || 'All';
+      els.playlistFilters.forEach(item => {
+        const active = item === btn;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      renderPlaylist();
+    });
+  });
+
+  els.lyricsBtn?.addEventListener('click', () => {
+    if (lyricsPanelOpen()) closeLyrics();
+    else openLyrics();
+  });
+  els.closeLyrics?.addEventListener('click', closeLyrics);
   document.addEventListener('keydown', e => {
     if (e.code === 'Space' && !/INPUT|BUTTON|A/.test(document.activeElement?.tagName || '')) {
       e.preventDefault(); togglePlay();

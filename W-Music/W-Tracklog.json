@@ -1,47 +1,77 @@
 {
-  "version": 1,
+  "version": 2,
   "tracks": [
     {
       "ID": "20260928-01_L_Contract-Me",
       "Img": 1,
       "TITLE": "Lying Red",
       "STORY": "Contract Me",
-      "Theme": "E.Red"
+      "Theme": "E.Red",
+      "Type": "IP"
     },
     {
       "ID": "20260928-01_L_Contract-Me",
       "Img": 3,
       "TITLE": "Wife?!",
       "STORY": "Contract Me",
-      "Theme": "L.Night"
+      "Theme": "L.Night",
+      "Type": "IP"
     },
     {
       "ID": "20260928-02_O_Cat-Fighting",
       "Img": 1,
       "TITLE": "Dangerous Silver",
       "STORY": "Cat Fighting",
-      "Theme": "C.Curo"
+      "Theme": "C.Curo",
+      "Type": "IP"
     },
     {
       "ID": "20260928-02_O_Cat-Fighting",
       "Img": 2,
       "TITLE": "SHE OWNS",
       "STORY": "Cat Fighting",
-      "Theme": "D.Dark"
+      "Theme": "D.Dark",
+      "Type": "IP"
     },
     {
       "ID": "20260929-03_C_DDD-Special-Operations",
       "Img": 4,
       "TITLE": "NO24 Monitor",
       "STORY": "DDD Special Operations",
-      "Theme": "Icy"
+      "Theme": "Icy",
+      "Type": "IP"
     },
     {
       "ID": "_IP-Story",
       "Img": 1,
       "TITLE": "YURI♡",
       "STORY": "IP Story",
-      "Theme": "YURI1"
+      "Theme": "YURI1",
+      "Type": "IP"
+    },
+    {
+      "ID": "20260929-02_S_Five-Bottles",
+      "Img": 1,
+      "TITLE": "Five Reasons",
+      "STORY": "Five bottles",
+      "Theme": "Shorts",
+      "Type": "Shorts"
+    },
+    {
+      "ID": "20260929-02_S_Five-Bottles",
+      "Img": 3,
+      "TITLE": "冗談だよ...半分は",
+      "STORY": "Five bottles",
+      "Theme": "Shorts",
+      "Type": "Shorts"
+    },
+    {
+      "ID": "20260930-01_S_Carnivore",
+      "Img": 2,
+      "TITLE": "Rotlinde",
+      "STORY": "Carnivore",
+      "Theme": "Shorts",
+      "Type": "Shorts"
     }
   ]
 }
