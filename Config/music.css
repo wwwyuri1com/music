@@ -703,10 +703,12 @@ button {
   overflow: auto;
 
   max-height: 430px;
+  scrollbar-color: #fa6699 #2f262900;
+  scrollbar-width: thin;
 }
 
 .track-item {
-  width: 100%;
+  width: 97%;
 
   border:
     1px solid transparent;
@@ -755,6 +757,7 @@ button {
   border-radius: 12px;
 
   object-fit: cover;
+  object-position: center 30%;
 }
 
 .track-item b {
@@ -1297,4 +1300,33 @@ body::after {
 
 .repeat-one-btn[aria-pressed="true"]:hover {
   background: rgba(250,102,153,.18);
+}
+
+
+/* =========================================================
+   HORIZONTAL TRACK SWIPE
+   Main hero follows touch slightly; controls/timeline are excluded in JS.
+   ========================================================= */
+.stage {
+  touch-action: pan-y;
+}
+
+.hero {
+  transform: translate3d(var(--swipe-x, 0px), 0, 0);
+  opacity: var(--swipe-opacity, 1);
+  transition:
+    transform 180ms cubic-bezier(.2,.75,.22,1),
+    opacity 160ms ease;
+  will-change: transform, opacity;
+}
+
+.hero.swipe-tracking,
+.hero.swipe-no-transition {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero {
+    transition: none;
+  }
 }

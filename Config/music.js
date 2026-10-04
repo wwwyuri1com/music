@@ -5,6 +5,8 @@
   const els = {
     app: $('.music-app'),
     cover: $('.cover-layer'),
+    stage: $('.stage'),
+    hero: $('.hero'),
     mascot: $('#mascot'),
     title: $('#track-title'),
     story: $('#track-story'),
@@ -279,6 +281,148 @@
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  }
+
+  // =======================================================
+  // HORIZONTAL SWIPE NAVIGATION
+  // Swipe left = next track, swipe right = previous track.
+  // Interactive controls are excluded so seeking/tapping never changes tracks.
+  // =======================================================
+  const SWIPE_THRESHOLD = 68;
+  const SWIPE_VELOCITY = 0.48; // px/ms
+  const SWIPE_MIN_FLICK = 30;
+  const SWIPE_MAX_DRAG = 150;
+
+  const swipe = {
+    active: false,
+    locked: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    startTime: 0,
+    dx: 0
+  };
+
+  function isSwipeBlockedTarget(target) {
+    return Boolean(target?.closest?.(
+      'button, a, input, select, textarea, label, .player-shell, .playlist, .topbar'
+    ));
+  }
+
+  function setHeroSwipeOffset(dx, tracking = true) {
+    if (!els.hero) return;
+    const limited = Math.max(-SWIPE_MAX_DRAG, Math.min(SWIPE_MAX_DRAG, dx));
+    els.hero.classList.toggle('swipe-tracking', tracking);
+    els.hero.style.setProperty('--swipe-x', `${limited}px`);
+    els.hero.style.setProperty('--swipe-opacity', String(1 - Math.min(0.42, Math.abs(limited) / 430)));
+  }
+
+  function resetHeroSwipe() {
+    if (!els.hero) return;
+    els.hero.classList.remove('swipe-tracking');
+    els.hero.style.setProperty('--swipe-x', '0px');
+    els.hero.style.setProperty('--swipe-opacity', '1');
+  }
+
+  function finishSwipe(direction) {
+    if (!els.hero || !direction) {
+      resetHeroSwipe();
+      return;
+    }
+
+    const wasPlaying = !els.audio.paused && !els.audio.ended;
+    const exitX = direction > 0 ? -Math.min(180, innerWidth * 0.28) : Math.min(180, innerWidth * 0.28);
+    els.hero.classList.remove('swipe-tracking');
+    els.hero.style.setProperty('--swipe-x', `${exitX}px`);
+    els.hero.style.setProperty('--swipe-opacity', '0.18');
+
+    window.setTimeout(() => {
+      setTrack(currentIndex + direction, { autoplay: wasPlaying, updateHistory: true });
+
+      // Bring the new track in from the opposite side without flashing.
+      const enterX = -exitX * 0.55;
+      els.hero.classList.add('swipe-no-transition');
+      els.hero.style.setProperty('--swipe-x', `${enterX}px`);
+      els.hero.style.setProperty('--swipe-opacity', '0.35');
+      void els.hero.offsetWidth;
+      els.hero.classList.remove('swipe-no-transition');
+      requestAnimationFrame(() => resetHeroSwipe());
+    }, 115);
+  }
+
+  function cancelSwipe() {
+    swipe.active = false;
+    swipe.locked = false;
+    swipe.pointerId = null;
+    swipe.dx = 0;
+    resetHeroSwipe();
+  }
+
+  if (els.stage && els.hero && window.PointerEvent) {
+    els.stage.addEventListener('pointerdown', e => {
+      if (!e.isPrimary || isSwipeBlockedTarget(e.target) || els.playlist.classList.contains('open')) return;
+      // Touch/pen are the intended gestures. Mouse drag is ignored to avoid accidental desktop switching.
+      if (e.pointerType === 'mouse') return;
+
+      swipe.active = true;
+      swipe.locked = false;
+      swipe.pointerId = e.pointerId;
+      swipe.startX = swipe.lastX = e.clientX;
+      swipe.startY = e.clientY;
+      swipe.startTime = performance.now();
+      swipe.dx = 0;
+      try { els.stage.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+
+    els.stage.addEventListener('pointermove', e => {
+      if (!swipe.active || e.pointerId !== swipe.pointerId) return;
+      const dx = e.clientX - swipe.startX;
+      const dy = e.clientY - swipe.startY;
+
+      if (!swipe.locked) {
+        if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
+        if (Math.abs(dy) >= Math.abs(dx) * 0.78) {
+          cancelSwipe();
+          return;
+        }
+        swipe.locked = true;
+      }
+
+      swipe.dx = dx;
+      swipe.lastX = e.clientX;
+      setHeroSwipeOffset(dx * 0.72, true);
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+
+    const endSwipe = e => {
+      if (!swipe.active || e.pointerId !== swipe.pointerId) return;
+      const dx = swipe.dx || (e.clientX - swipe.startX);
+      const elapsed = Math.max(1, performance.now() - swipe.startTime);
+      const velocity = Math.abs(dx) / elapsed;
+      const shouldChange = swipe.locked && (
+        Math.abs(dx) >= SWIPE_THRESHOLD ||
+        (Math.abs(dx) >= SWIPE_MIN_FLICK && velocity >= SWIPE_VELOCITY)
+      );
+
+      swipe.active = false;
+      swipe.locked = false;
+      swipe.pointerId = null;
+
+      if (!shouldChange) {
+        resetHeroSwipe();
+        return;
+      }
+
+      // Finger moves left -> next track (+1). Finger moves right -> previous track (-1).
+      finishSwipe(dx < 0 ? 1 : -1);
+    };
+
+    els.stage.addEventListener('pointerup', endSwipe);
+    els.stage.addEventListener('pointercancel', cancelSwipe);
+    els.stage.addEventListener('lostpointercapture', () => {
+      if (swipe.active) cancelSwipe();
+    });
   }
 
   async function togglePlay() {
