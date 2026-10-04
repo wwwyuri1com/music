@@ -1445,15 +1445,18 @@ body::after {
 
 .lyrics-head strong {
   display: block;
-  font-size: 14px;
+  font-size: 10px;
+  font-weight: normal;
+  color:#ffffff80;
 }
 
 .lyrics-track-title {
   display: block;
-  margin-top: 3px;
+  margin-top: 5px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 13px;
+  font-weight:600;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -1482,7 +1485,7 @@ body::after {
 .lyrics-cue {
   margin-top: 20px;
   margin-bottom: 8px;
-  color: rgba(255,255,255,.56);
+  color:#FA669995;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
@@ -1523,5 +1526,83 @@ body::after {
   .lyrics-panel,
   .playlist-filter {
     transition: none;
+  }
+}
+
+/* =========================================================
+   FAVORITES — saved locally in this browser
+   ========================================================= */
+
+.favorites-only-btn,
+.track-favorite {
+  color: rgba(255,255,255,.78);
+}
+
+.favorites-only-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: rgba(250,102,153,.13);
+  box-shadow: inset 0 0 0 1px rgba(250,102,153,.28);
+}
+
+.favorites-only-btn[aria-pressed="true"]:hover {
+  background: rgba(250,102,153,.18);
+}
+
+.track-item {
+  grid-template-columns: 48px minmax(0, 1fr) auto 32px;
+}
+
+.track-copy-row {
+  min-width: 0;
+}
+
+.track-favorite {
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.track-favorite:hover {
+  color: #fff;
+  background: rgba(255,255,255,.08);
+}
+
+.track-favorite:active {
+  transform: scale(.92);
+}
+
+.track-favorite svg {
+  width: 17px;
+  height: 17px;
+}
+
+.track-favorite.active,
+.track-favorite[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.track-favorite.active svg,
+.track-favorite[aria-pressed="true"] svg {
+  fill: currentColor;
+}
+
+@media (max-width: 420px) {
+  .track-item {
+    grid-template-columns: 44px minmax(0, 1fr) auto 30px;
+    gap: 8px;
+  }
+
+  .track-item img {
+    width: 44px;
+    height: 44px;
   }
 }

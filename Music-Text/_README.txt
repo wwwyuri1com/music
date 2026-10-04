@@ -20,3 +20,10 @@ Optional custom story link override:
 If Link is omitted or blank, the player automatically builds:
   https://www.yuri1.com/Post.html?id=P<YYYYMMDD-NN>
 from the beginning of ID. Shorts use the same rule as IP tracks.
+
+W-Tracklog display / Player-Img rule:
+  "OC": "Icy"                    # character name shown in the player
+  "Theme": "Album-Icy-Mini-1-10" # Player-Img/<Theme>.png filename key
+
+OC and Theme are independent. If OC is omitted, the player falls back to Theme
+for backward compatibility with older track entries.
