@@ -1476,7 +1476,7 @@ body::after {
 .lyrics-cue {
   margin-top: 20px;
   margin-bottom: 8px;
-  color: rgba(255,255,255,.56);
+  color:#FA669990;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
