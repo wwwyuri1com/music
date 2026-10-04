@@ -73,5 +73,23 @@
       "Theme": "Shorts",
       "Type": "Shorts"
     }
-  ]
+  ,
+{
+  "ID": "20260924-02_S_LadyL",
+  "Img": 1,
+  "TITLE": "Wind and Sea",
+  "STORY": "Lady L",
+  "Theme": "Shorts",
+  "Type": "Shorts"
+}
+,
+{
+  "ID": "20260924-02_S_LadyL",
+  "Img": 3,
+  "TITLE": "Leopard",
+  "STORY": "Lady L",
+  "Theme": "Shorts",
+  "Type": "Shorts"
+}
+]
 }

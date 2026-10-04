@@ -9,6 +9,14 @@ Example:
 
 W-Tracklog.json track filter:
   "Type": "IP"
-  "Type": "Single"
+  "Type": "Shorts"
 
 If Type is omitted, the player treats the track as IP.
+
+
+Optional custom story link override:
+  "Link": "https://www.yuri1.com/Post.html?id=P20260924-02"
+
+If Link is omitted or blank, the player automatically builds:
+  https://www.yuri1.com/Post.html?id=P<YYYYMMDD-NN>
+from the beginning of ID. Shorts use the same rule as IP tracks.

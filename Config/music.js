@@ -62,7 +62,7 @@
 
   let tracks = [];
   let currentIndex = 0;
-  let playlistFilter = 'All';
+  let playlistFilter = null;
   let lyricsLoadSerial = 0;
   const playedTrackKeys = new Set();
 
@@ -96,14 +96,26 @@
     return `Music-Text/${encodeURIComponent(track.ID)}%20(${track.Img}).txt`;
   }
   function trackType(track) {
-    return String(track?.Type || 'IP').trim().toLowerCase() === 'shorts' ? 'Shorts' : 'IP';
+    const value = String(track?.Type || 'IP').trim() || 'IP';
+    if (value.toLowerCase() === 'shorts') return 'Shorts';
+    if (value.toLowerCase() === 'ip') return 'IP';
+    return value;
   }
   function mascotPath(track) {
     return `Player-Img/${encodeURIComponent(track.Theme || '_default')}.png`;
   }
   function postLink(track) {
-    if (track?.Link) return String(track.Link);
-    if (trackType(track) === 'Shorts') return '';
+    const customLink = String(track?.Link || '').trim();
+    if (customLink) {
+      try {
+        return new URL(customLink, 'https://www.yuri1.com/').href;
+      } catch {
+        return '';
+      }
+    }
+
+    // Shorts use the same canonical Post ID rule as every other story track.
+    // Example: 20260924-02_S_LadyL -> P20260924-02
     const key = sourceKey(track.ID);
     return key ? `https://www.yuri1.com/Post.html?id=P${key}` : '';
   }
@@ -366,7 +378,7 @@
     els.trackList.innerHTML = '';
     const visible = tracks
       .map((t, i) => ({ t, i }))
-      .filter(({ t }) => playlistFilter === 'All' || trackType(t) === playlistFilter);
+      .filter(({ t }) => playlistFilter === null || trackType(t) === playlistFilter);
 
     if (!visible.length) {
       const empty = document.createElement('div');
@@ -384,7 +396,7 @@
       btn.innerHTML = `
         <img alt="" src="${coverPath(t)}">
         <span><b>${escapeHtml(t.TITLE || 'Untitled')}</b><span>${escapeHtml(t.STORY || '')}</span></span>
-        <span class="track-side"><span class="theme">${escapeHtml(t.Theme || '')}</span><span class="track-type">${type}</span></span>`;
+        <span class="track-side"><span class="theme">${escapeHtml(t.Theme || '')}</span><span class="track-type">${escapeHtml(type)}</span></span>`;
       const thumb = btn.querySelector('img');
       versionedAsset(coverPath(t)).then(url => {
         if (thumb?.isConnected) thumb.src = url;
@@ -620,17 +632,33 @@
   });
   els.closePlaylist.addEventListener('click', () => els.playlist.classList.remove('open'));
 
-  els.playlistFilters.forEach(btn => {
-    btn.addEventListener('click', () => {
-      playlistFilter = btn.dataset.trackFilter || 'All';
-      els.playlistFilters.forEach(item => {
-        const active = item === btn;
-        item.classList.toggle('active', active);
-        item.setAttribute('aria-pressed', active ? 'true' : 'false');
+  function buildTypeFilters() {
+    const container = $('.playlist-filters');
+    if (!container) return;
+    container.replaceChildren();
+    const values = [null, ...new Set(['IP', 'Shorts', ...tracks.map(trackType)])];
+    const buttons = values.map(value => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'playlist-filter';
+      btn.textContent = value === null ? 'All' : value;
+      if (value !== null) btn.dataset.trackFilter = value;
+      const refresh = () => {
+        const active = playlistFilter === value;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', String(active));
+      };
+      btn.addEventListener('click', () => {
+        playlistFilter = value;
+        buttons.forEach(item => item.refresh());
+        renderPlaylist();
       });
-      renderPlaylist();
+      refresh();
+      container.appendChild(btn);
+      return { btn, refresh };
     });
-  });
+    els.playlistFilters = buttons.map(item => item.btn);
+  }
 
   els.lyricsBtn?.addEventListener('click', () => {
     if (lyricsPanelOpen()) closeLyrics();
@@ -654,6 +682,7 @@
       const data = await r.json();
       tracks = Array.isArray(data) ? data : data.tracks;
       if (!Array.isArray(tracks) || !tracks.length) throw new Error('No tracks');
+      buildTypeFilters();
 
       const q = new URLSearchParams(location.search);
       const requestedId = q.get('id');
