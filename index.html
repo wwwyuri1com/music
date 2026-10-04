@@ -40,7 +40,79 @@
     gtag('js', new Date());
     gtag('config', 'G-TWSTEMZXGL');
   </script>
-  <link rel="stylesheet" href="Config/music.css">
+  <link id="music-css" rel="stylesheet" href="Config/music.css">
+  <script>
+  // YURI1 automatic asset versioning.
+  // Revalidate metadata; unchanged files keep the same cache URL,
+  // changed files receive a new ?v= token automatically.
+  window.YURI1Cache = (() => {
+    const versions = new Map();
+    const pending = new Map();
+    const fallbackToken = Date.now().toString(36);
+
+    function hash(text) {
+      let h = 2166136261;
+      for (let i = 0; i < text.length; i++) {
+        h ^= text.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(36);
+    }
+
+    function normalizedUrl(path) {
+      const u = new URL(path, location.href);
+      u.searchParams.delete('v');
+      return u;
+    }
+
+    async function versioned(path) {
+      const u = normalizedUrl(path);
+      if (u.origin !== location.origin) return path;
+
+      const key = `${u.pathname}${u.search}`;
+      if (versions.has(key)) {
+        u.searchParams.set('v', versions.get(key));
+        return `${u.pathname}${u.search}${u.hash}`;
+      }
+      if (pending.has(key)) return pending.get(key);
+
+      const job = (async () => {
+        let token = fallbackToken;
+        try {
+          const r = await fetch(`${u.pathname}${u.search}`, {
+            method: 'HEAD',
+            cache: 'no-cache'
+          });
+          if (r.ok) {
+            const signature = [
+              r.headers.get('etag') || '',
+              r.headers.get('last-modified') || '',
+              r.headers.get('content-length') || ''
+            ].join('|');
+            if (signature.replace(/\|/g, '')) token = hash(signature);
+          }
+        } catch (_) {}
+
+        versions.set(key, token);
+        u.searchParams.set('v', token);
+        return `${u.pathname}${u.search}${u.hash}`;
+      })();
+
+      pending.set(key, job);
+      try { return await job; }
+      finally { pending.delete(key); }
+    }
+
+    return { versioned };
+  })();
+
+  // Refresh CSS using the detected file signature. The plain href above
+  // remains as a safe fallback if metadata probing is unavailable.
+  window.YURI1Cache.versioned('Config/music.css').then(url => {
+    const link = document.getElementById('music-css');
+    if (link && link.href !== new URL(url, location.href).href) link.href = url;
+  });
+  </script>
 </head>
 <body>
   <main class="music-app">
@@ -123,6 +195,18 @@
     <audio id="audio" preload="metadata"></audio>
   </main>
 
-  <script src="Config/music.js" defer></script>
+  <script>
+  // Load the player only after the DOM exists, with the same auto-version logic.
+  (async () => {
+    if (document.readyState === 'loading') {
+      await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
+    }
+    const src = await window.YURI1Cache.versioned('Config/music.js');
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = false;
+    document.body.appendChild(script);
+  })();
+  </script>
 </body>
 </html>

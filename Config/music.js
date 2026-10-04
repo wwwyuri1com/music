@@ -45,6 +45,13 @@
   const TITLE_SUFFIX = 'YURI NO1 Music – Girls Love ♡ AI Music from Novels';
   const INDEX_DESCRIPTION = 'Original YURI NO1 AI music inspired by Girls Love novels, characters, and stories.';
 
+  const versionedAsset = path => {
+    const fn = window.YURI1Cache?.versioned;
+    return typeof fn === 'function' ? fn(path) : Promise.resolve(path);
+  };
+
+  let assetRenderSerial = 0;
+
   let tracks = [];
   let currentIndex = 0;
   const playedTrackKeys = new Set();
@@ -196,17 +203,40 @@
     els.title.textContent = t.TITLE || 'Untitled';
     els.story.textContent = t.STORY || '';
     els.theme.textContent = t.Theme || '';
-    const coverUrl = coverPath(t);
-    els.cover.style.backgroundImage = `url("${coverUrl}")`;
-
-    // Desktop side background:
-    // paint the same cover on <body>; CSS copies/blurs it behind the 360px player.
-    document.body.style.backgroundImage = `url("${coverUrl}")`;
-    document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
-    els.mascot.src = mascotPath(t);
-    els.mascot.onerror = () => { els.mascot.onerror = null; els.mascot.src = 'Player-Img/_default.png'; };
-    els.audio.src = audioPath(t);
+    const serial = ++assetRenderSerial;
+    els.audio.pause();
+    els.audio.removeAttribute('src');
     els.audio.load();
+
+    const coverRaw = coverPath(t);
+    const mascotRaw = mascotPath(t);
+    const audioRaw = audioPath(t);
+
+    // Resolve real file signatures before assigning cacheable media URLs.
+    // This keeps unchanged assets cached, while same-name replacements refresh automatically.
+    versionedAsset(coverRaw).then(coverUrl => {
+      if (serial !== assetRenderSerial) return;
+      els.cover.style.backgroundImage = `url("${coverUrl}")`;
+      document.body.style.backgroundImage = `url("${coverUrl}")`;
+      document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
+    });
+
+    versionedAsset(mascotRaw).then(mascotUrl => {
+      if (serial !== assetRenderSerial) return;
+      els.mascot.src = mascotUrl;
+      els.mascot.onerror = async () => {
+        els.mascot.onerror = null;
+        els.mascot.src = await versionedAsset('Player-Img/_default.png');
+      };
+    });
+
+    versionedAsset(audioRaw).then(audioUrl => {
+      if (serial !== assetRenderSerial) return;
+      const shouldAutoplay = autoplay;
+      els.audio.src = audioUrl;
+      els.audio.load();
+      if (shouldAutoplay) els.audio.play().catch(() => {});
+    });
     els.seek.value = 0;
     els.seek.style.setProperty('--p', '0%');
     els.current.textContent = '0:00';
@@ -223,9 +253,6 @@
     if (trackView) sendGaEvent('music_track_view', t);
     renderPlaylist();
 
-    if (autoplay) {
-      els.audio.play().catch(() => {});
-    }
   }
 
   function renderPlaylist() {
@@ -238,6 +265,10 @@
         <img alt="" src="${coverPath(t)}">
         <span><b>${escapeHtml(t.TITLE || 'Untitled')}</b><span>${escapeHtml(t.STORY || '')}</span></span>
         <span class="theme">${escapeHtml(t.Theme || '')}</span>`;
+      const thumb = btn.querySelector('img');
+      versionedAsset(coverPath(t)).then(url => {
+        if (thumb?.isConnected) thumb.src = url;
+      });
       btn.addEventListener('click', () => {
         setTrack(i, { autoplay: !els.audio.paused, updateHistory: true });
         els.playlist.classList.remove('open');
@@ -334,7 +365,8 @@
   async function boot() {
     setStatus('Loading music…');
     try {
-      const r = await fetch('W-Music/W-Tracklog.json', { cache: 'no-store' });
+      const tracklogUrl = await versionedAsset('W-Music/W-Tracklog.json');
+      const r = await fetch(tracklogUrl, { cache: 'no-cache' });
       if (!r.ok) throw new Error(`Tracklog HTTP ${r.status}`);
       const data = await r.json();
       tracks = Array.isArray(data) ? data : data.tracks;
