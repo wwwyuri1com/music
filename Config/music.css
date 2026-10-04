@@ -1,7 +1,7 @@
 :root {
   --accent: #fa6699;
   --text: #fff;
-  --muted: rgba(255,255,255,.66);
+  --muted: rgba(255,255,255,.80);
   --glass: rgba(12,12,18,.30);
   --glass-strong: rgba(12,12,18,.48);
   --line: rgba(255,255,255,.16);
