@@ -69,6 +69,172 @@
 
   let assetRenderSerial = 0;
 
+  const DEFAULT_GLOW_PALETTE = [
+    [250, 102, 153],
+    [124, 210, 255],
+    [180, 132, 255]
+  ];
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    const l = (max + min) / 2;
+    const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    if (d !== 0) {
+      if (max === r) h = 60 * (((g - b) / d) % 6);
+      else if (max === g) h = 60 * (((b - r) / d) + 2);
+      else h = 60 * (((r - g) / d) + 4);
+      if (h < 0) h += 360;
+    }
+    return [h, s, l];
+  }
+
+  function hslToRgb(h, s, l) {
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let rr = 0, gg = 0, bb = 0;
+    if (h < 60) [rr, gg, bb] = [c, x, 0];
+    else if (h < 120) [rr, gg, bb] = [x, c, 0];
+    else if (h < 180) [rr, gg, bb] = [0, c, x];
+    else if (h < 240) [rr, gg, bb] = [0, x, c];
+    else if (h < 300) [rr, gg, bb] = [x, 0, c];
+    else [rr, gg, bb] = [c, 0, x];
+    return [
+      Math.round((rr + m) * 255),
+      Math.round((gg + m) * 255),
+      Math.round((bb + m) * 255)
+    ];
+  }
+
+  function colorDistance(a, b) {
+    const dr = a[0] - b[0];
+    const dg = a[1] - b[1];
+    const db = a[2] - b[2];
+    return Math.sqrt(dr * dr + dg * dg + db * db);
+  }
+
+  function deriveGlowPalette(imageData) {
+    const bins = new Map();
+    const data = imageData.data;
+
+    const width = imageData.width || 1;
+    const height = imageData.height || 1;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3];
+      if (a < 180) continue;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const [h, s, l] = rgbToHsl(r, g, b);
+
+      // Ignore near-black / near-white / nearly gray areas; they make weak neon glows.
+      if (l < 0.10 || l > 0.92 || s < 0.16) continue;
+
+      const pixel = i / 4;
+      const x = pixel % width;
+      const y = Math.floor(pixel / width);
+      const dx = Math.abs((x + 0.5) / width - 0.5) * 2;
+      const dy = Math.abs((y + 0.5) / height - 0.5) * 2;
+      // Covers usually place the character near center. Favor the outer scene/background a bit.
+      const backgroundBias = 0.82 + Math.min(0.72, Math.hypot(dx, dy) * 0.52);
+
+      const hueBin = Math.floor(h / 15);
+      const lightBin = l < 0.38 ? 0 : l < 0.68 ? 1 : 2;
+      const key = `${hueBin}:${lightBin}`;
+      const vividness = 0.45 + s * 0.9;
+      const midLightBonus = 1 - Math.min(0.7, Math.abs(l - 0.56));
+      // Downweight dark orange/brown without suppressing genuinely luminous gold.
+      const muddyWarmPenalty = h >= 18 && h <= 48 && l < 0.43 ? 0.58 : 1;
+      const weight = vividness * midLightBonus * backgroundBias * muddyWarmPenalty;
+      const bin = bins.get(key) || { r: 0, g: 0, b: 0, w: 0, score: 0 };
+      bin.r += r * weight;
+      bin.g += g * weight;
+      bin.b += b * weight;
+      bin.w += weight;
+      bin.score += weight;
+      bins.set(key, bin);
+    }
+
+    const candidates = [...bins.values()]
+      .filter(bin => bin.w > 0)
+      .map(bin => ({
+        rgb: [Math.round(bin.r / bin.w), Math.round(bin.g / bin.w), Math.round(bin.b / bin.w)],
+        score: bin.score
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    const picked = [];
+    for (const candidate of candidates) {
+      if (picked.every(existing => colorDistance(existing, candidate.rgb) >= 66)) {
+        picked.push(candidate.rgb);
+        if (picked.length === 3) break;
+      }
+    }
+
+    if (!picked.length) return DEFAULT_GLOW_PALETTE.map(c => [...c]);
+
+    // Monochrome covers still get a rich three-layer glow by deriving tasteful variants.
+    while (picked.length < 3) {
+      const base = picked[0];
+      const [h, s, l] = rgbToHsl(...base);
+      if (picked.length === 1) {
+        picked.push(hslToRgb(h + 22, clamp01(Math.max(0.48, s * 0.92)), clamp01(Math.min(0.72, l + 0.14))));
+      } else {
+        picked.push(hslToRgb(h - 24, clamp01(Math.max(0.42, s * 0.84)), clamp01(Math.max(0.36, l - 0.10))));
+      }
+    }
+
+    return picked.slice(0, 3);
+  }
+
+  function applyGlowPalette(colors) {
+    const [c1, c2, c3] = colors;
+    const root = els.app || document.documentElement;
+    root.style.setProperty('--mascot-glow-1', `rgba(${c1.join(',')},.92)`);
+    root.style.setProperty('--mascot-glow-2', `rgba(${c2.join(',')},.72)`);
+    root.style.setProperty('--mascot-glow-3', `rgba(${c3.join(',')},.52)`);
+    root.style.setProperty('--disc-glow-1', `rgba(${c1.join(',')},.34)`);
+    root.style.setProperty('--disc-glow-2', `rgba(${c2.join(',')},.25)`);
+    root.style.setProperty('--disc-glow-3', `rgba(${c3.join(',')},.18)`);
+  }
+
+  function updateGlowFromCover(url, serial) {
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => {
+      if (serial !== assetRenderSerial) return;
+      try {
+        const canvas = document.createElement('canvas');
+        const size = 40;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error('Canvas unavailable');
+        ctx.drawImage(image, 0, 0, size, size);
+        const palette = deriveGlowPalette(ctx.getImageData(0, 0, size, size));
+        applyGlowPalette(palette);
+      } catch (_) {
+        applyGlowPalette(DEFAULT_GLOW_PALETTE);
+      }
+    };
+    image.onerror = () => {
+      if (serial === assetRenderSerial) applyGlowPalette(DEFAULT_GLOW_PALETTE);
+    };
+    image.src = url;
+  }
+
+  applyGlowPalette(DEFAULT_GLOW_PALETTE);
+
   let tracks = [];
   let currentIndex = 0;
   let lyricsLoadSerial = 0;
@@ -586,6 +752,7 @@
       els.cover.style.backgroundImage = `url("${coverUrl}")`;
       document.body.style.backgroundImage = `url("${coverUrl}")`;
       document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
+      updateGlowFromCover(coverUrl, serial);
     });
 
     versionedAsset(mascotRaw).then(mascotUrl => {
