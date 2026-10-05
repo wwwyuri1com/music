@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <link rel="icon" type="image/png" sizes="32x32" href="Config/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="Config/favicon-16x16.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="config/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="config/favicon-16x16.png">
   <meta name="theme-color" content="#09090d">
   <title>YURI NO1 Music – Girls Love ♡ AI Music from Novels</title>
   <meta id="meta-description" name="description" content="Original YURI NO1 AI music inspired by Girls Love novels, characters, and stories.">
@@ -14,13 +14,13 @@
   <meta id="og-title" property="og:title" content="YURI NO1 Music – Girls Love ♡ AI Music from Novels">
   <meta id="og-description" property="og:description" content="Original YURI NO1 AI music inspired by Girls Love novels, characters, and stories.">
   <meta id="og-url" property="og:url" content="https://music.yuri1.com/">
-  <meta id="og-image" property="og:image" content="https://music.yuri1.com/Config/_index.jpg">
+  <meta id="og-image" property="og:image" content="https://music.yuri1.com/config/-index.jpg">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="YURI NO1 Music">
   <meta name="twitter:card" content="summary_large_image">
   <meta id="twitter-title" name="twitter:title" content="YURI NO1 Music – Girls Love ♡ AI Music from Novels">
   <meta id="twitter-description" name="twitter:description" content="Original YURI NO1 AI music inspired by Girls Love novels, characters, and stories.">
-  <meta id="twitter-image" name="twitter:image" content="https://music.yuri1.com/Config/_index.jpg">
+  <meta id="twitter-image" name="twitter:image" content="https://music.yuri1.com/config/-index.jpg">
 
   <script id="structured-data" type="application/ld+json">
   {
@@ -28,7 +28,7 @@
     "@type": "WebSite",
     "name": "YURI NO1 Music",
     "url": "https://music.yuri1.com/",
-    "image": "https://music.yuri1.com/Config/_index.jpg",
+    "image": "https://music.yuri1.com/config/-index.jpg",
     "description": "Original YURI NO1 AI music inspired by Girls Love novels, characters, and stories."
   }
   </script>
@@ -40,7 +40,7 @@
     gtag('js', new Date());
     gtag('config', 'G-TWSTEMZXGL');
   </script>
-  <link id="music-css" rel="stylesheet" href="Config/music.css">
+  <link id="music-css" rel="stylesheet" href="config/music.css">
   <script>
   // YURI1 automatic asset versioning.
   // Revalidate metadata; unchanged files keep the same cache URL,
@@ -108,7 +108,7 @@
 
   // Refresh CSS using the detected file signature. The plain href above
   // remains as a safe fallback if metadata probing is unavailable.
-  window.YURI1Cache.versioned('Config/music.css').then(url => {
+  window.YURI1Cache.versioned('config/music.css').then(url => {
     const link = document.getElementById('music-css');
     if (link && link.href !== new URL(url, location.href).href) link.href = url;
   });
@@ -129,7 +129,7 @@
       <div class="hero">
         <div class="disc-wrap" aria-hidden="true">
           <div class="disc-halo"></div>
-          <img id="mascot" class="mascot" src="Player-Img/_default.png" alt="">
+          <img id="mascot" class="mascot" alt="">
         </div>
         <div class="track-copy">
           <h1 id="track-title" class="track-title">YURI1 Music</h1>
@@ -243,7 +243,7 @@
     if (document.readyState === 'loading') {
       await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
     }
-    const src = await window.YURI1Cache.versioned('Config/music.js');
+    const src = await window.YURI1Cache.versioned('config/music.js');
     const script = document.createElement('script');
     script.src = src;
     script.async = false;
