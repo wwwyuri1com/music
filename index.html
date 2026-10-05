@@ -153,12 +153,16 @@
 
         <div class="controls">
           <div class="controls-side">
-            <button id="playback-mode" class="control-btn playback-mode-btn" type="button"
-                    aria-label="Playback pool: all tracks" title="Playback pool: all tracks">
-              <span id="playback-mode-mark" class="playback-mode-mark" aria-hidden="true">
-                <span class="playback-mode-all"><span>ALL</span><span>Track</span></span>
-              </span>
-            </button>
+            <div class="playback-switch" role="group" aria-label="Playback pool">
+              <button id="playback-all" class="control-btn playback-switch-half playback-all-btn" type="button"
+                      aria-label="Use all tracks" aria-pressed="true" title="ALL Track">
+                <span class="playback-mode-all" aria-hidden="true"><span>ALL</span><span>Track</span></span>
+              </button>
+              <button id="playback-mode" class="control-btn playback-switch-half playback-mode-btn" type="button"
+                      aria-label="Resume FAV mode" aria-pressed="false" title="FAV mode">
+                <span id="playback-mode-mark" class="playback-mode-mark" aria-hidden="true"></span>
+              </button>
+            </div>
             <button id="lyrics-btn" class="control-btn lyrics-btn" type="button" aria-label="Open lyrics" title="Lyrics">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M6 5h12M6 9h9M6 13h12M6 17h8"/>

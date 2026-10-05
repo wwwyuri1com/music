@@ -20,6 +20,7 @@
     next: $('#next'),
     metaLink: $('#track-meta-link'),
     repeatOne: $('#repeat-one'),
+    playbackAll: $('#playback-all'),
     playbackMode: $('#playback-mode'),
     playbackModeMark: $('#playback-mode-mark'),
     currentFavorite: $('#current-favorite'),
@@ -106,6 +107,7 @@
   let repeatOne = localStorage.getItem(REPEAT_ONE_KEY) === '1';
   // Custom-list playback/view state is intentionally session-only for this prototype.
   let playbackList = 0; // 0 = ALL Track, 1..6 = custom list playback pool
+  let lastPlaybackList = 1; // remembers the last FAV bank while ALL Track is active
   let trackListView = 1; // 1..6 = which custom list's hearts are being edited; list 1 is the default
   let contentFilter = 'ALL'; // ALL | FAV_ONLY | any Type value
   const customLists = new Map(LIST_DEFS.map(def => [def.id, new Set()]));
@@ -147,18 +149,23 @@
 
   function renderPlaybackMode() {
     if (!els.playbackMode || !els.playbackModeMark) return;
-    const def = listDef(playbackList);
-    if (!def) {
-      els.playbackModeMark.innerHTML = '<span class="playback-mode-all"><span>ALL</span><span>Track</span></span>';
-      els.playbackMode.setAttribute('aria-label', 'Playback pool: all tracks');
-      els.playbackMode.title = 'Playback pool: all tracks';
-      els.playbackMode.dataset.list = '0';
-      return;
-    }
+    const favOn = playbackList > 0;
+    const def = listDef(favOn ? playbackList : lastPlaybackList) || listDef(1);
+    if (favOn) lastPlaybackList = def.id;
+
     els.playbackModeMark.innerHTML = `<span class="playback-mode-list"><sup>${def.sup}</sup><span class="playback-mode-icon">${def.icon}</span></span>`;
-    els.playbackMode.setAttribute('aria-label', `Playback pool: custom list ${def.id}`);
-    els.playbackMode.title = `Custom list ${def.id}: ${def.label}`;
     els.playbackMode.dataset.list = String(def.id);
+    els.playbackMode.classList.toggle('active', favOn);
+    els.playbackMode.setAttribute('aria-pressed', String(favOn));
+    els.playbackMode.setAttribute('aria-label', favOn ? `FAV mode on: custom list ${def.id}` : `Resume FAV mode: custom list ${def.id}`);
+    els.playbackMode.title = favOn ? `FAV mode: custom list ${def.id} — click to next list` : `Resume FAV mode: custom list ${def.id}`;
+
+    if (els.playbackAll) {
+      els.playbackAll.classList.toggle('active', !favOn);
+      els.playbackAll.setAttribute('aria-pressed', String(!favOn));
+      els.playbackAll.setAttribute('aria-label', favOn ? 'Switch to ALL Track' : 'ALL Track active');
+      els.playbackAll.title = favOn ? 'Switch to ALL Track' : 'ALL Track';
+    }
   }
 
   function renderCurrentFavorite() {
@@ -272,12 +279,23 @@
     renderPlaybackMode();
   }
 
-  function cyclePlaybackMode() {
-    const wasPlaying = !els.audio.paused && !els.audio.ended;
-    playbackList = (playbackList + 1) % (LIST_DEFS.length + 1);
+  function switchToAllTrack({ notify = false } = {}) {
+    if (playbackList) lastPlaybackList = playbackList;
+    playbackList = 0;
     renderPlaybackMode();
+    if (notify) {
+      setStatus('FAV OFF');
+      window.setTimeout(() => setStatus(''), 900);
+    }
+  }
 
-    if (!playbackList) return;
+  function activateFavList(listId) {
+    const def = listDef(listId) || listDef(1);
+    if (!def) return;
+    const wasPlaying = !els.audio.paused && !els.audio.ended;
+    lastPlaybackList = def.id;
+    playbackList = def.id;
+    renderPlaybackMode();
 
     const indices = listTrackIndices(playbackList);
     if (!indices.length) {
@@ -290,6 +308,15 @@
     if (!isInList(tracks[currentIndex], playbackList)) {
       setTrack(indices[0], { autoplay: wasPlaying, updateHistory: true });
     }
+  }
+
+  function cycleFavPlaybackMode() {
+    if (!playbackList) {
+      activateFavList(lastPlaybackList);
+      return;
+    }
+    const nextList = (playbackList % LIST_DEFS.length) + 1;
+    activateFavList(nextList);
   }
 
   function sourceKey(id) {
@@ -699,9 +726,7 @@
 
       const selectTrack = () => {
         if (playbackList && !isInList(t, playbackList)) {
-          setStatus(`Playback is locked to custom list ${playbackList}.`);
-          window.setTimeout(() => setStatus(''), 1100);
-          return;
+          switchToAllTrack({ notify: true });
         }
         setTrack(i, { autoplay: !els.audio.paused, updateHistory: true });
         els.playlist.classList.remove('open');
@@ -755,6 +780,7 @@
   };
 
   let suppressMetaClickUntil = 0;
+  let suppressPanelDismissUntil = 0;
 
   function isSwipeBlockedTarget(target) {
     if (target?.closest?.('.track-meta-link')) return false;
@@ -859,6 +885,7 @@
       const dx = swipe.dx || (e.clientX - swipe.startX);
       const elapsed = Math.max(1, performance.now() - swipe.startTime);
       const velocity = Math.abs(dx) / elapsed;
+      const wasHorizontalGesture = swipe.locked && Math.abs(dx) >= 9;
       const shouldChange = swipe.locked && (
         Math.abs(dx) >= SWIPE_THRESHOLD ||
         (Math.abs(dx) >= SWIPE_MIN_FLICK && velocity >= SWIPE_VELOCITY)
@@ -867,6 +894,9 @@
       swipe.active = false;
       swipe.locked = false;
       swipe.pointerId = null;
+
+      // A horizontal swipe/drag should never be treated as an outside tap that closes panels.
+      if (wasHorizontalGesture) suppressPanelDismissUntil = performance.now() + 450;
 
       if (!shouldChange) {
         resetHeroSwipe();
@@ -976,7 +1006,8 @@
     renderRepeatOne();
   });
 
-  els.playbackMode?.addEventListener('click', cyclePlaybackMode);
+  els.playbackAll?.addEventListener('click', () => switchToAllTrack());
+  els.playbackMode?.addEventListener('click', cycleFavPlaybackMode);
 
   els.currentFavorite?.addEventListener('click', e => {
     e.stopPropagation();
@@ -1044,6 +1075,23 @@
     else openLyrics();
   });
   els.closeLyrics?.addEventListener('click', closeLyrics);
+
+  // Close Tracks/Lyrics only when the user taps the non-interactive background.
+  // Bottom player controls stay fully usable while a panel is open.
+  document.addEventListener('click', e => {
+    if (performance.now() < suppressPanelDismissUntil) return;
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('.player-shell, .playlist, .lyrics-panel, .topbar')) return;
+
+    const clickedAppBackground = Boolean(target.closest('.music-app'));
+    const clickedDesktopBackground = target === document.body || target === document.documentElement;
+    if (!clickedAppBackground && !clickedDesktopBackground) return;
+
+    if (els.playlist?.classList.contains('open')) els.playlist.classList.remove('open');
+    if (lyricsPanelOpen()) closeLyrics();
+  });
+
   document.addEventListener('keydown', e => {
     if (e.code === 'Space' && !/INPUT|BUTTON|A/.test(document.activeElement?.tagName || '')) {
       e.preventDefault(); togglePlay();
