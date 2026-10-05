@@ -133,7 +133,14 @@
         </div>
         <div class="track-copy">
           <h1 id="track-title" class="track-title">YURI1 Music</h1>
-          <p class="track-meta"><strong id="track-theme">—</strong> · <span id="track-story">—</span></p>
+          <p class="track-meta">
+            <a id="track-meta-link" class="track-meta-link" href="#" target="_blank" rel="noopener" aria-label="Open related story">
+              <strong id="track-theme">—</strong> · <span id="track-story">—</span>
+              <svg class="track-meta-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              </svg>
+            </a>
+          </p>
         </div>
       </div>
 
@@ -146,9 +153,12 @@
 
         <div class="controls">
           <div class="controls-side">
-            <a id="story-link" class="control-btn story-link" href="#" target="_blank" rel="noopener" aria-label="Open story">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h7v7"/><path d="m10 14 11-11"/><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/></svg>
-            </a>
+            <button id="playback-mode" class="control-btn playback-mode-btn" type="button"
+                    aria-label="Playback pool: all tracks" title="Playback pool: all tracks">
+              <span id="playback-mode-mark" class="playback-mode-mark" aria-hidden="true">
+                <span class="playback-mode-all"><span>ALL</span><span>Track</span></span>
+              </span>
+            </button>
             <button id="lyrics-btn" class="control-btn lyrics-btn" type="button" aria-label="Open lyrics" title="Lyrics">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="M6 5h12M6 9h9M6 13h12M6 17h8"/>
@@ -181,14 +191,14 @@
                 <path d="M10.5 10.5 12 9"/>
               </svg>
             </button>
-            <button id="favorites-only" class="control-btn favorites-only-btn" type="button"
-                    aria-label="Favorites-only playback off" aria-pressed="false" title="Favorites only: off">
+            <button id="current-favorite" class="control-btn current-favorite-btn" type="button"
+                    aria-label="Edit custom lists for current track" aria-expanded="false" title="Custom lists">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="m12 7.2 1.48 3 3.31.48-2.4 2.34.57 3.3L12 14.76l-2.96 1.56.57-3.3-2.4-2.34 3.31-.48L12 7.2Z"/>
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78Z"/>
               </svg>
             </button>
+            <div id="custom-list-picker" class="custom-list-picker" role="group" aria-label="Add current track to custom lists" hidden></div>
           </div>
         </div>
       </div>
@@ -201,11 +211,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
-      <div class="playlist-filters" role="group" aria-label="Track type filter">
-        <button type="button" class="playlist-filter active" data-track-filter="All" aria-pressed="true">All</button>
-        <button type="button" class="playlist-filter" data-track-filter="IP" aria-pressed="false">IP</button>
-        <button type="button" class="playlist-filter" data-track-filter="Shorts" aria-pressed="false">Shorts</button>
-      </div>
+      <div class="playlist-filters custom-list-tabs" role="tablist" aria-label="Track and custom list view"></div>
+      <div class="playlist-filters content-filter-tabs" role="group" aria-label="Track content filter"></div>
       <div id="track-list" class="track-list"></div>
     </aside>
 
