@@ -190,5 +190,15 @@
       "Theme": "album-icy-mini-1-10",
       "Type": "Album"
     }
-  ]
+  ,
+{
+  "ID": "-no6",
+  "Img": 1,
+  "TITLE": "転送開始",
+  "STORY": "NO1",
+  "OC": "NO6",
+  "Theme": "icy",
+  "Type": "IP"
+}
+]
 }
