@@ -329,14 +329,106 @@
     const raw = String(track.ID || '').trim();
     return raw ? `m-${raw}` : '';
   }
+  function coreAssetName(track, extension) {
+    return `${String(track.ID || '').trim()} (${Number(track.Img)}).${extension}`;
+  }
+  function coreAssetPath(track, extension) {
+    return `music-core/${encodeURIComponent(coreAssetName(track, extension))}`;
+  }
+  function coreRecordStem(track) {
+    const id = String(track.ID || '').trim().replace(/^[-_]+/, '');
+    return `${id}-${Number(track.Img)}`;
+  }
+  function coreRecordPath(track) {
+    return `music-core/${encodeURIComponent(coreRecordStem(track))}.html`;
+  }
   function coverPath(track) {
-    return `music-img/${encodeURIComponent(String(track.ID || ''))}%20(${track.Img}).jpg`;
+    return coreAssetPath(track, 'jpg');
   }
   function audioPath(track) {
-    return `music-mp3/${encodeURIComponent(String(track.ID || ''))}%20(${track.Img}).mp3`;
+    return coreAssetPath(track, 'mp3');
   }
   function lyricsPath(track) {
-    return `music-text/${encodeURIComponent(String(track.ID || ''))}%20(${track.Img}).txt`;
+    return coreAssetPath(track, 'txt');
+  }
+
+  const coreRecordCache = new Map();
+
+  function coreRecordKey(track) {
+    return `${String(track.ID || '').trim()}::${Number(track.Img)}`;
+  }
+
+  function coreTextWithBreaks(element) {
+    if (!element) return '';
+    const clone = element.cloneNode(true);
+    clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    return clone.textContent.replace(/\r\n?/g, '\n');
+  }
+
+  function coreLabeledValue(doc, field, label) {
+    const text = doc.querySelector(`[data-field="${field}"]`)?.textContent?.trim() || '';
+    const prefix = `${label}:`;
+    return text.toLowerCase().startsWith(prefix.toLowerCase())
+      ? text.slice(prefix.length).trim()
+      : text;
+  }
+
+  async function loadCoreRecord(track) {
+    const key = coreRecordKey(track);
+    if (coreRecordCache.has(key)) return await coreRecordCache.get(key);
+
+    const job = (async () => {
+      const url = await versionedAsset(coreRecordPath(track));
+      const r = await fetch(url, { cache: 'no-cache' });
+      if (!r.ok) throw new Error(`Core record HTTP ${r.status}`);
+      const html = await r.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const lyricsEl = doc.querySelector('[data-field="Lyrics"]');
+      if (!lyricsEl) throw new Error('Core record missing Lyrics');
+      return {
+        lyrics: coreTextWithBreaks(lyricsEl),
+        image: coreLabeledValue(doc, 'Image', 'Image'),
+        mp3: coreLabeledValue(doc, 'MP3', 'MP3'),
+        text: coreLabeledValue(doc, 'Text', 'Text'),
+        userGui: coreLabeledValue(doc, 'User GUI', 'User GUI')
+      };
+    })();
+
+    coreRecordCache.set(key, job);
+    try {
+      const record = await job;
+      coreRecordCache.set(key, record);
+      return record;
+    } catch (error) {
+      coreRecordCache.delete(key);
+      throw error;
+    }
+  }
+
+  function coreCatalogTracks(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const rows = [...doc.querySelectorAll('#music-catalog tbody tr')];
+    if (!rows.length) throw new Error('Music Core catalog is empty');
+
+    const field = (row, name) =>
+      row.querySelector(`[data-field="${name}"]`)?.textContent?.trim() || '';
+
+    return rows.map((row, index) => {
+      const ID = field(row, 'ID');
+      const imgRaw = field(row, 'Img');
+      if (!ID || !/^\d+$/.test(imgRaw) || Number(imgRaw) < 1) {
+        throw new Error(`Invalid Music Core row ${index + 1}`);
+      }
+      return {
+        ID,
+        Img: Number(imgRaw),
+        TITLE: field(row, 'TITLE'),
+        STORY: field(row, 'STORY'),
+        OC: field(row, 'OC'),
+        Theme: field(row, 'Theme'),
+        Type: field(row, 'Type')
+      };
+    });
   }
   function trackType(track) {
     const value = String(track?.Type || 'IP').trim() || 'IP';
@@ -345,11 +437,11 @@
     return value;
   }
   function ocLabel(track) {
-    // OC is the display character name. Theme remains the player-img filename key.
+    // OC is the display character name. Theme remains the music-player filename key.
     return String(track?.OC || track?.Theme || '').trim();
   }
   function mascotPath(track) {
-    return `player-img/${encodeURIComponent(String(track.Theme || '').trim())}.png`;
+    return `music-player/${encodeURIComponent(String(track.Theme || '').trim())}.png`;
   }
   function postLink(track) {
     const customLink = String(track?.Link || '').trim();
@@ -531,10 +623,18 @@
     renderLyricsMessage('Loading lyrics…');
 
     try {
-      const url = await versionedAsset(lyricsPath(track));
-      const r = await fetch(url, { cache: 'no-cache' });
-      if (!r.ok) throw new Error(`Lyrics HTTP ${r.status}`);
-      const text = await r.text();
+      let text = '';
+      try {
+        const record = await loadCoreRecord(track);
+        text = record.lyrics;
+      } catch (coreError) {
+        // Archive HTML is primary; TXT remains a fallback during migration/testing.
+        console.warn(coreError);
+        const url = await versionedAsset(lyricsPath(track));
+        const r = await fetch(url, { cache: 'no-cache' });
+        if (!r.ok) throw new Error(`Lyrics HTTP ${r.status}`);
+        text = await r.text();
+      }
       if (serial !== lyricsLoadSerial) return;
       renderLyricsText(text);
       els.lyricsContent.scrollTop = 0;
@@ -575,30 +675,39 @@
     els.audio.removeAttribute('src');
     els.audio.load();
 
-    const coverRaw = coverPath(t);
     const mascotRaw = mascotPath(t);
-    const audioRaw = audioPath(t);
 
-    // Resolve real file signatures before assigning cacheable media URLs.
-    // This keeps unchanged assets cached, while same-name replacements refresh automatically.
-    versionedAsset(coverRaw).then(coverUrl => {
+    // The selected track reads its exact image/MP3 filenames from the closed
+    // archive HTML. If that record is unavailable, the legacy ID + Img naming
+    // convention remains a safe fallback.
+    loadCoreRecord(t).catch(() => null).then(record => {
       if (serial !== assetRenderSerial) return;
-      els.cover.style.backgroundImage = `url("${coverUrl}")`;
-      document.body.style.backgroundImage = `url("${coverUrl}")`;
-      document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
+      const coverRaw = record?.image
+        ? `music-core/${encodeURIComponent(record.image)}`
+        : coverPath(t);
+      const audioRaw = record?.mp3
+        ? `music-core/${encodeURIComponent(record.mp3)}`
+        : audioPath(t);
+
+      versionedAsset(coverRaw).then(coverUrl => {
+        if (serial !== assetRenderSerial) return;
+        els.cover.style.backgroundImage = `url("${coverUrl}")`;
+        document.body.style.backgroundImage = `url("${coverUrl}")`;
+        document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
+      });
+
+      versionedAsset(audioRaw).then(audioUrl => {
+        if (serial !== assetRenderSerial) return;
+        const shouldAutoplay = autoplay;
+        els.audio.src = audioUrl;
+        els.audio.load();
+        if (shouldAutoplay) els.audio.play().catch(() => {});
+      });
     });
 
     versionedAsset(mascotRaw).then(mascotUrl => {
       if (serial !== assetRenderSerial) return;
       els.mascot.src = mascotUrl;
-    });
-
-    versionedAsset(audioRaw).then(audioUrl => {
-      if (serial !== assetRenderSerial) return;
-      const shouldAutoplay = autoplay;
-      els.audio.src = audioUrl;
-      els.audio.load();
-      if (shouldAutoplay) els.audio.play().catch(() => {});
     });
     els.seek.value = 0;
     els.seek.style.setProperty('--p', '0%');
@@ -1102,12 +1211,10 @@
   async function boot() {
     setStatus('Loading music…');
     try {
-      const tracklogUrl = await versionedAsset('w-music/w-tracklog.json');
-      const r = await fetch(tracklogUrl, { cache: 'no-cache' });
-      if (!r.ok) throw new Error(`Tracklog HTTP ${r.status}`);
-      const data = await r.json();
-      tracks = Array.isArray(data) ? data : data.tracks;
-      if (!Array.isArray(tracks) || !tracks.length) throw new Error('No tracks');
+      const catalogUrl = await versionedAsset('music-core/index.html');
+      const r = await fetch(catalogUrl, { cache: 'no-cache' });
+      if (!r.ok) throw new Error(`Music Core HTTP ${r.status}`);
+      tracks = coreCatalogTracks(await r.text());
 
       // Machine identities are strict lowercase. Do not normalize legacy uppercase IDs.
       for (const track of tracks) {
@@ -1140,7 +1247,7 @@
       setStatus('');
     } catch (err) {
       console.error(err);
-      setStatus('Unable to load W-Tracklog.json');
+      setStatus('Unable to load music-core/index.html');
     }
   }
 
