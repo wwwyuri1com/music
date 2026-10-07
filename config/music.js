@@ -392,14 +392,21 @@
     if (!tracks.length) return -1;
     fallbackFromEmptyPlaybackList();
     const step = direction >= 0 ? 1 : -1;
+
+    // ALL Track keeps its normal circular navigation.
     if (!playbackList) return (fromIndex + step + tracks.length) % tracks.length;
 
-    let idx = fromIndex;
-    for (let count = 0; count < tracks.length; count += 1) {
-      idx = (idx + step + tracks.length) % tracks.length;
+    // Inside a custom list, only move to a real previous/next item in that
+    // direction. Do not wrap from the last FAV item back to the first (or vice
+    // versa). Reaching a list boundary means the custom playback pool is done
+    // in that direction, so return to ALL Track and continue the requested
+    // previous/next action there.
+    for (let idx = fromIndex + step; idx >= 0 && idx < tracks.length; idx += step) {
       if (isInList(tracks[idx], playbackList)) return idx;
     }
-    return -1;
+
+    switchToAllTrack();
+    return (fromIndex + step + tracks.length) % tracks.length;
   }
 
   function moveTrack(direction, { autoplay = true, updateHistory = true } = {}) {

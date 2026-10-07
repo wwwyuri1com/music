@@ -1210,13 +1210,13 @@ position: absolute;
 /* PLUS */
 .disc-play-btn {
   /* 1. 預設狀態：一般時候是透明度 0 */
-  opacity: 0;
+  opacity: 0.5;
   
   /* 2. 正常互動：滑鼠離開時，等 3 秒才在 0.5 秒內變透明 */
-  transition: opacity 0.2s ease 0.1s; 
+  transition: opacity 0.01s ease 0.05s; 
 
   /* 3. 關鍵密技：剛進網頁時，強制執行一個「永遠停在第一格」的動畫 */
-  animation: keepVisible 0.2s forwards;
+  animation: keepVisible 0.01s forwards;
 }
 
 /* 4. 當滑鼠移入時，中斷網頁剛進來的動畫，並恢復正常 Hover 機制 */
