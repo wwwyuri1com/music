@@ -47,7 +47,11 @@
     twitterTitle: $('#twitter-title'),
     twitterDescription: $('#twitter-description'),
     twitterImage: $('#twitter-image'),
-    structuredData: $('#structured-data')
+    structuredData: $('#structured-data'),
+    backupBtn: $('#backup-btn'),
+    backupMenu: $('#backup-menu'),
+    backupExport: $('#backup-export'),
+    backupImport: $('#backup-import')
   };
 
   const ICONS = {
@@ -76,6 +80,14 @@
 
   const REPEAT_ONE_KEY = 'yuri1_music_repeat_one';
   const LEGACY_FAVORITES_KEY = 'yuri1_music_favorites';
+  const STATE_KEY = 'yuri1.music.state.v1';
+  const LISTS_KEY = 'yuri1.music.lists.v1';
+  const BACKUP_VERSION = 1;
+  const BACKUP_CARD_SYSTEM_VERSION = '1.009-music';
+  const BACKUP_SCOPE_PREFIX = 'yuri1.music.';
+  let resumeTime = 0;
+  let resumeKey = '';
+  let stateSaveTimer = 0;
 
   const LIST_DEFS = [
     {
@@ -112,11 +124,53 @@
   let contentFilter = 'ALL'; // ALL | FAV_ONLY | any Type value
   const customLists = new Map(LIST_DEFS.map(def => [def.id, new Set()]));
 
+  function normalizeStoredKey(key) {
+    const value = String(key || '');
+    const separator = value.lastIndexOf(':');
+    if (separator === -1) return value;
+    return `${value.slice(0, separator).toLowerCase().replace(/_/g, '-')}:${value.slice(separator+1)}`;
+  }
+
+  function loadSavedLists() {
+    try {
+      const data = JSON.parse(localStorage.getItem(LISTS_KEY) || '{}');
+      LIST_DEFS.forEach(def => {
+        const values = Array.isArray(data?.[def.id]) ? data[def.id] : [];
+        customLists.set(def.id, new Set(values.map(normalizeStoredKey)));
+      });
+      return Object.keys(data || {}).length > 0;
+    } catch (_) { return false; }
+  }
+  function saveLists() {
+    const data = {};
+    LIST_DEFS.forEach(def => data[def.id] = [...(customLists.get(def.id) || [])]);
+    localStorage.setItem(LISTS_KEY, JSON.stringify(data));
+  }
+  const hasSavedLists = loadSavedLists();
+
   // Carry the previous single Favorite set into list 1 for continuity while testing.
   try {
     const legacy = JSON.parse(localStorage.getItem(LEGACY_FAVORITES_KEY) || '[]');
-    if (Array.isArray(legacy)) legacy.forEach(key => customLists.get(1).add(String(key)));
+    if (!hasSavedLists && Array.isArray(legacy)) legacy.forEach(key => customLists.get(1).add(normalizeStoredKey(key)));
   } catch (_) {}
+
+  function readSavedState() {
+    try { return JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {}; } catch (_) { return {}; }
+  }
+  function saveStateNow() {
+    if (!tracks.length) return;
+    const t = tracks[currentIndex];
+    const data = {
+      trackKey: t ? trackKey(t) : '',
+      time: Number.isFinite(els.audio.currentTime) ? els.audio.currentTime : 0,
+      repeatOne, playbackList, lastPlaybackList, trackListView, contentFilter
+    };
+    localStorage.setItem(STATE_KEY, JSON.stringify(data));
+  }
+  function queueStateSave() {
+    clearTimeout(stateSaveTimer);
+    stateSaveTimer = window.setTimeout(saveStateNow, 250);
+  }
 
   function listDef(id) {
     return LIST_DEFS.find(def => def.id === Number(id)) || null;
@@ -244,11 +298,12 @@
 
   function moveTrack(direction, { autoplay = true, updateHistory = true } = {}) {
     const idx = nextPlayableIndex(direction);
-    if (idx < 0) {
-      setStatus(`Custom list ${playbackList} is empty.`);
-      window.setTimeout(() => setStatus(''), 1100);
-      return false;
+    if (idx < 0 && playbackList) {
+      switchToAllTrack({ notify: true });
+      const fallback = nextPlayableIndex(direction);
+      if (fallback >= 0) { setTrack(fallback, { autoplay, updateHistory }); return true; }
     }
+    if (idx < 0) return false;
     setTrack(idx, { autoplay, updateHistory });
     return true;
   }
@@ -264,9 +319,7 @@
     if (playbackList === listId) {
       const indices = listTrackIndices(listId);
       if (!indices.length) {
-        els.audio.pause();
-        setStatus(`Custom list ${listId} is empty.`);
-        window.setTimeout(() => setStatus(''), 1100);
+        switchToAllTrack({ notify: true });
       } else if (!isInList(tracks[currentIndex], listId)) {
         const wasPlaying = !els.audio.paused && !els.audio.ended;
         const idx = nextPlayableIndex(1);
@@ -274,6 +327,8 @@
       }
     }
 
+    saveLists();
+    queueStateSave();
     renderPlaylist();
     renderCurrentFavorite();
     renderPlaybackMode();
@@ -283,6 +338,7 @@
     if (playbackList) lastPlaybackList = playbackList;
     playbackList = 0;
     renderPlaybackMode();
+    queueStateSave();
     if (notify) {
       setStatus('FAV OFF');
       window.setTimeout(() => setStatus(''), 900);
@@ -299,9 +355,7 @@
 
     const indices = listTrackIndices(playbackList);
     if (!indices.length) {
-      els.audio.pause();
-      setStatus(`Custom list ${playbackList} is empty.`);
-      window.setTimeout(() => setStatus(''), 1100);
+      switchToAllTrack({ notify: true });
       return;
     }
 
@@ -327,7 +381,7 @@
     const key = sourceKey(track.ID);
     if (key) return `m-p${key}`;
     const raw = String(track.ID || '').trim();
-    return raw ? `m-${raw}` : '';
+    return raw ? `m-${raw.toLowerCase().replace(/_/g, '-')}` : '';
   }
   function coverPath(track) {
     return `music-img/${encodeURIComponent(String(track.ID || ''))}%20(${track.Img}).jpg`;
@@ -369,11 +423,26 @@
   function absoluteUrl(path) {
     return new URL(path, SITE_ROOT).href;
   }
+  function slugify(value) {
+    return String(value || 'track').trim().toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'track';
+  }
+  // The user-editable url-title overrides the display title ONLY for the URL.
+  // Keep the asset ID (ID + Img), trackKey, title, media paths, and cover unchanged.
+  function trackUrlTitle(track) {
+    const custom = String(track?.['url-title'] || '').trim().toLowerCase();
+    if (custom) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(custom)) {
+        throw new Error(`Invalid url-title for ${track.TITLE}: ${custom}. Use only a-z, 0-9 and hyphens.`);
+      }
+      return custom;
+    }
+    return slugify(track.TITLE);
+  }
   function trackUrl(track) {
-    const u = new URL(INDEX_URL);
-    u.searchParams.set('id', musicId(track));
-    u.searchParams.set('track', String(track.Img));
-    return u.href;
+    return new URL(`m/${musicId(track).toLowerCase()}/${trackUrlTitle(track)}/`, SITE_ROOT).href;
   }
   function trackKey(track) {
     return `${musicId(track)}:${track.Img}`;
@@ -469,7 +538,7 @@
   }
   function updateUrl(track, replace = true) {
     const u = new URL(trackUrl(track));
-    history[replace ? 'replaceState' : 'pushState']({}, '', `${u.pathname}${u.search}`);
+    history[replace ? 'replaceState' : 'pushState']({}, '', u.pathname);
   }
 
   function lyricsPanelOpen() {
@@ -560,6 +629,21 @@
     if (els.lyricsContent) els.lyricsContent.scrollTop = 0;
   }
 
+  function updateMediaSession(track) {
+    if (!('mediaSession' in navigator) || !track) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.TITLE || 'Untitled', artist: ocLabel(track) || 'YURI NO1', album: track.STORY || 'YURI NO1 Music',
+        artwork: [{ src: absoluteUrl(coverPath(track)), sizes: '1805x3200', type: 'image/jpeg' }]
+      });
+    } catch (_) {}
+  }
+  function updateMediaPosition() {
+    if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function') return;
+    if (!Number.isFinite(els.audio.duration) || els.audio.duration <= 0) return;
+    try { navigator.mediaSession.setPositionState({ duration: els.audio.duration, playbackRate: els.audio.playbackRate || 1, position: Math.min(els.audio.currentTime || 0, els.audio.duration) }); } catch (_) {}
+  }
+
   function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true } = {}) {
     if (!tracks.length) return;
     currentIndex = (index + tracks.length) % tracks.length;
@@ -583,9 +667,22 @@
     // This keeps unchanged assets cached, while same-name replacements refresh automatically.
     versionedAsset(coverRaw).then(coverUrl => {
       if (serial !== assetRenderSerial) return;
-      els.cover.style.backgroundImage = `url("${coverUrl}")`;
-      document.body.style.backgroundImage = `url("${coverUrl}")`;
-      document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
+      const coverTest = new Image();
+      coverTest.onload = () => {
+        if (serial !== assetRenderSerial) return;
+        els.cover.style.backgroundImage = `url("${coverUrl}")`;
+        document.body.style.backgroundImage = `url("${coverUrl}")`;
+        document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
+      };
+      coverTest.onerror = () => {
+        if (serial !== assetRenderSerial) return;
+        console.error('[YURI1 Music] Cover not found:', new URL(coverUrl, document.baseURI).href);
+        els.cover.style.backgroundImage = 'none';
+        document.body.style.backgroundImage = 'none';
+        document.body.style.setProperty('--cover-image', 'none');
+        setStatus(`Cover missing: ${coverRaw}`);
+      };
+      coverTest.src = coverUrl;
     });
 
     versionedAsset(mascotRaw).then(mascotUrl => {
@@ -614,6 +711,8 @@
       els.metaLink.tabIndex = link ? 0 : -1;
     }
     renderCurrentFavorite();
+    updateMediaSession(t);
+    queueStateSave();
 
     if (updateHistory) updateUrl(t, true);
     if (updateSeo) applyTrackSeo(t);
@@ -958,8 +1057,17 @@
     els.play.innerHTML = ICONS.play;
     els.play.setAttribute('aria-label', 'Play');
   });
+  els.audio.addEventListener('error', () => {
+    const track = tracks[currentIndex];
+    if (!track) return;
+    console.error('[YURI1 Music] Audio unavailable:', new URL(audioPath(track), document.baseURI).href, els.audio.error);
+    setStatus(`Audio missing: ${audioPath(track)}`);
+  });
   els.audio.addEventListener('loadedmetadata', () => {
     els.duration.textContent = fmt(els.audio.duration);
+    const t = tracks[currentIndex];
+    if (t && resumeKey === trackKey(t) && resumeTime > 0 && resumeTime < els.audio.duration - 1) { els.audio.currentTime = resumeTime; resumeTime = 0; resumeKey = ''; }
+    updateMediaPosition();
     const q = new URLSearchParams(location.search);
     if (q.get('id') || q.get('track')) {
       const t = tracks[currentIndex];
@@ -979,6 +1087,8 @@
     const p = els.audio.duration ? (els.audio.currentTime / els.audio.duration) * 100 : 0;
     els.seek.value = p;
     els.seek.style.setProperty('--p', `${p}%`);
+    queueStateSave();
+    updateMediaPosition();
   });
   els.audio.addEventListener('ended', () => {
     const t = tracks[currentIndex];
@@ -1000,6 +1110,7 @@
     repeatOne = !repeatOne;
     localStorage.setItem(REPEAT_ONE_KEY, repeatOne ? '1' : '0');
     renderRepeatOne();
+    queueStateSave();
   });
 
   els.playbackAll?.addEventListener('click', () => switchToAllTrack());
@@ -1094,6 +1205,19 @@
     }
   });
 
+  if ('mediaSession' in navigator) {
+    const safe = (name, fn) => { try { navigator.mediaSession.setActionHandler(name, fn); } catch (_) {} };
+    safe('play', () => els.audio.play().catch(() => {}));
+    safe('pause', () => els.audio.pause());
+    safe('previoustrack', () => moveTrack(-1, { autoplay: true }));
+    safe('nexttrack', () => moveTrack(1, { autoplay: true }));
+    safe('seekto', d => { if (Number.isFinite(d.seekTime)) els.audio.currentTime = d.seekTime; });
+    safe('seekbackward', d => { els.audio.currentTime = Math.max(0, els.audio.currentTime - (d.seekOffset || 10)); });
+    safe('seekforward', d => { els.audio.currentTime = Math.min(els.audio.duration || Infinity, els.audio.currentTime + (d.seekOffset || 10)); });
+  }
+  window.addEventListener('pagehide', saveStateNow);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) saveStateNow(); });
+
   renderRepeatOne();
   renderPlaybackMode();
   buildListPicker();
@@ -1108,35 +1232,48 @@
       const data = await r.json();
       tracks = Array.isArray(data) ? data : data.tracks;
       if (!Array.isArray(tracks) || !tracks.length) throw new Error('No tracks');
-
-      // Machine identities are strict lowercase. Do not normalize legacy uppercase IDs.
-      for (const track of tracks) {
-        const id = String(track?.ID || '');
-        const theme = String(track?.Theme || '');
-        if (/[A-Z]/.test(id) || /[A-Z]/.test(theme)) {
-          throw new Error(`Machine identity must be lowercase: ${id || theme}`);
-        }
+      const seenTrackUrls = new Set();
+      for (const t of tracks) {
+        const url = trackUrl(t);
+        if (seenTrackUrls.has(url)) throw new Error(`Duplicate track URL: ${url}`);
+        seenTrackUrls.add(url);
       }
       renderPlaybackMode();
       buildListTabs();
       buildContentFilters();
 
+      const saved = readSavedState();
+      repeatOne = typeof saved.repeatOne === 'boolean' ? saved.repeatOne : repeatOne;
+      playbackList = Number(saved.playbackList) || 0; lastPlaybackList = Number(saved.lastPlaybackList) || 1;
+      trackListView = Number(saved.trackListView) || 1; contentFilter = saved.contentFilter || 'ALL';
+      if (playbackList && !listTrackIndices(playbackList).length) playbackList = 0;
+      renderRepeatOne(); renderPlaybackMode();
+
       const q = new URLSearchParams(location.search);
-      const requestedId = q.get('id') || '';
+      // pathname is percent-encoded in browsers. Decode each segment before
+      // comparing with Japanese/CJK title-derived URLs (NFKD, like slugify).
+      const pathParts = location.pathname.split('/').filter(Boolean).map(part => {
+        try { return decodeURIComponent(part).toLowerCase().normalize('NFKD'); }
+        catch (_) { return part.toLowerCase(); }
+      });
+      const mRoot = pathParts[0] === 'm';
+      const pathId = mRoot && pathParts[1]?.startsWith('m-') ? pathParts[1] : '';
+      const pathSlug = mRoot ? (pathParts[2] || '') : '';
+      const requestedId = (q.get('id') || pathId || '').toLowerCase();
       const requestedTrackRaw = q.get('track');
       const requestedTrack = requestedTrackRaw !== null ? Number(requestedTrackRaw) : null;
-      const hasTrackQuery = Boolean(requestedId || requestedTrackRaw !== null);
-      const idx = tracks.findIndex(t =>
-        (!requestedId || musicId(t) === requestedId) &&
+      const hasExplicitTrack = Boolean(requestedId || requestedTrackRaw !== null);
+      let idx = tracks.findIndex(t =>
+        (!requestedId || musicId(t).toLowerCase() === requestedId) &&
+        (!pathSlug || trackUrlTitle(t) === pathSlug) &&
         (requestedTrack === null || Number(t.Img) === requestedTrack)
       );
+      if (!hasExplicitTrack && saved.trackKey) idx = tracks.findIndex(t => trackKey(t) === normalizeStoredKey(saved.trackKey));
+      if (idx < 0) idx = 0;
+      if (!hasExplicitTrack && saved.trackKey) { resumeKey = normalizeStoredKey(saved.trackKey); resumeTime = Number(saved.time) || 0; }
 
-      if (hasTrackQuery) {
-        setTrack(idx >= 0 ? idx : 0, { updateHistory: false, updateSeo: true, trackView: true });
-      } else {
-        applyIndexSeo();
-        setTrack(0, { updateHistory: false, updateSeo: false, trackView: false });
-      }
+      if (hasExplicitTrack) setTrack(idx, { updateHistory: false, updateSeo: true, trackView: true });
+      else { applyIndexSeo(); setTrack(idx, { updateHistory: false, updateSeo: false, trackView: false }); }
       setStatus('');
     } catch (err) {
       console.error(err);

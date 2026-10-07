@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <base href="/">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <link rel="icon" type="image/png" sizes="32x32" href="config/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="config/favicon-16x16.png">
@@ -60,7 +61,10 @@
     }
 
     function normalizedUrl(path) {
-      const u = new URL(path, location.href);
+      // Use the document's <base href="/">, NOT location.href. The browser URL
+      // changes to /m/.../ while playback continues; location.href would turn
+      // /music-img/file.jpg into /m/.../music-img/file.jpg (404).
+      const u = new URL(path, document.baseURI);
       u.searchParams.delete('v');
       return u;
     }
@@ -110,7 +114,7 @@
   // remains as a safe fallback if metadata probing is unavailable.
   window.YURI1Cache.versioned('config/music.css').then(url => {
     const link = document.getElementById('music-css');
-    if (link && link.href !== new URL(url, location.href).href) link.href = url;
+    if (link && link.href !== new URL(url, document.baseURI).href) link.href = url;
   });
   </script>
 </head>
@@ -120,9 +124,17 @@
 
     <header class="topbar">
       <a class="brand" href="https://www.yuri1.com" target="_blank">© YURI NO1 ♫</a>
-      <button id="playlist-btn" class="icon-btn" type="button" aria-label="Open track list">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h12M4 12h12M4 17h8"/><path d="M19 15v5m0-5 2-1v5"/></svg>
-      </button>
+      <div class="topbar-actions">
+        <div class="backup-wrap">
+          <button id="backup-btn" class="icon-btn" type="button" aria-label="Music Backup Card" title="Backup Card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+          </button>
+          <div id="backup-menu" class="backup-menu" hidden><button id="backup-export" type="button">Download Backup Card</button><button id="backup-import" type="button">Restore Backup Card</button></div>
+        </div>
+        <button id="playlist-btn" class="icon-btn" type="button" aria-label="Open track list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h12M4 12h12M4 17h8"/><path d="M19 15v5m0-5 2-1v5"/></svg>
+        </button>
+      </div>
     </header>
 
     <section class="stage">
@@ -233,6 +245,22 @@
       <div id="lyrics-content" class="lyrics-content" tabindex="0">Lyrics unavailable.</div>
     </aside>
 
+    <div class="music-data-modal" id="music-data-modal" hidden aria-hidden="true">
+      <div class="music-data-modal-backdrop" data-music-data-close></div>
+      <div class="music-data-dialog" role="dialog" aria-modal="true" aria-labelledby="music-data-modal-title">
+        <div class="music-data-dialog-title" id="music-data-modal-title"></div>
+        <hr class="music-data-dialog-divider">
+        <img class="music-data-dialog-preview" id="music-data-modal-preview" hidden alt="">
+        <div class="music-data-dialog-body" id="music-data-modal-body"></div>
+        <div class="music-data-dialog-time" id="music-data-modal-time"></div>
+        <a class="music-data-dialog-help" href="https://www.yuri1.com/Post.html?id=Uaa01" target="_blank" rel="noopener">How to Use</a>
+        <div class="music-data-dialog-actions">
+          <button type="button" class="music-data-dialog-button secondary" data-music-data-close>Cancel</button>
+          <button type="button" class="music-data-dialog-button primary" data-music-data-confirm>OK</button>
+        </div>
+      </div>
+    </div>
+
     <div id="status" class="status" hidden></div>
     <audio id="audio" preload="metadata"></audio>
   </main>
@@ -250,5 +278,6 @@
     document.body.appendChild(script);
   })();
   </script>
+  <script src="config/music-backup.js"></script>
 </body>
 </html>
