@@ -623,6 +623,11 @@ button {
 }
 
 
+.lyrics-btn {
+  color: rgba(255,255,255,.92);
+}
+
+
 /* =========================================================
    STORY LINK
    ========================================================= */
@@ -1142,6 +1147,86 @@ body::after {
   aspect-ratio: 1;
 }
 
+.disc-wrap {
+  cursor: pointer;
+  border-radius: 50%;
+  outline: none;
+}
+
+.disc-wrap:focus-visible {
+  box-shadow: 0 0 0 2px rgba(255,255,255,.72), 0 0 0 5px rgba(250,102,153,.22);
+}
+
+.disc-halo {
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+
+.disc-wrap:hover .disc-halo,
+.disc-wrap:focus-visible .disc-halo {
+  border-color: rgba(255,255,255,.20);
+}
+
+.disc-wrap:active .disc-halo {
+  transform: scale(.985);
+}
+
+.disc-play-btn {    position: absolute;
+position: absolute;
+    z-index: 4;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: clamp(32px, 12vw, 48px);
+    height: clamp(32px, 12vw, 48px);
+    border: 0px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.8);
+    color: #ffffff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    /* box-shadow: inset 1px 3px 4px rgb(255 241 241 / 22%), inset 0 1px 0 rgba(255, 255, 255, .0); */
+    transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.disc-play-btn:hover {
+  color:#fa6699;
+}
+
+.disc-play-btn:active {
+  transform: translate(-50%, -50%) scale(.96);
+}
+
+.disc-play-btn:focus-visible {
+  outline: 2px solid rgba(255,255,255,.85);
+  outline-offset: 3px;
+}
+
+.disc-play-btn svg {
+  width: 32px;
+  height: 32px;
+}
+
+
+/* PLUS */
+.disc-play-btn {
+  /* 1. 預設狀態：一般時候是透明度 0 */
+  opacity: 0;
+  
+  /* 2. 正常互動：滑鼠離開時，等 3 秒才在 0.5 秒內變透明 */
+  transition: opacity 0.2s ease 0.1s; 
+
+  /* 3. 關鍵密技：剛進網頁時，強制執行一個「永遠停在第一格」的動畫 */
+  animation: keepVisible 0.2s forwards;
+}
+
+/* 4. 當滑鼠移入時，中斷網頁剛進來的動畫，並恢復正常 Hover 機制 */
+.disc-play-btn:hover {
+  opacity: 1;
+  transition-delay: 0s; /* 移入立刻變亮 */
+}
+
+
+
 /* ---------------------------------------------------------
    TRACK COPY
    --------------------------------------------------------- */
@@ -1648,7 +1733,8 @@ body::after {
   fill: currentColor;
 }
 
-.player-shell.fav-picker-open {
+.player-shell.fav-picker-open,
+.player-shell.playback-picker-open {
   z-index: 10;
 }
 
@@ -1671,6 +1757,16 @@ body::after {
 
 .custom-list-picker[hidden] {
   display: none;
+}
+
+.controls-side:first-child {
+  position: relative;
+}
+
+.playback-list-picker {
+  right: 0;
+  left: auto;
+  bottom: 50px;
 }
 
 .custom-list-pick {
@@ -1909,12 +2005,13 @@ body::after {
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
-  height: 38px;
+  width: 90px;
+  height: 42px;
   gap: 0;
 }
 
 .playback-switch .playback-switch-half {
-  height: 38px;
+  height: 42px;
   min-width: 0;
   padding: 0;
   border: 1px solid rgba(255,255,255,.20);
@@ -1924,13 +2021,13 @@ body::after {
 }
 
 .playback-switch .playback-all-btn {
-  width: 31px;
+  width: 46px;
   border-radius: 999px 0 0 999px;
   border-right-width: 0;
 }
 
 .playback-switch .playback-mode-btn {
-  width: 29px;
+  width: 44px;
   border-radius: 0 999px 999px 0;
 }
 
@@ -1947,9 +2044,9 @@ body::after {
 }
 
 .playback-switch .playback-mode-all {
-  font-size: 6.8px;
-  line-height: .9;
-  letter-spacing: .02em;
+  font-size: 8px;
+  line-height: .92;
+  letter-spacing: .025em;
 }
 
 .playback-switch .playback-mode-mark {
@@ -1962,14 +2059,14 @@ body::after {
 }
 
 .playback-switch .playback-mode-list sup {
-  top: 3px;
-  left: 3px;
-  font-size: 7px;
+  top: 4px;
+  left: 5px;
+  font-size: 8px;
 }
 
 .playback-switch .playback-mode-icon svg {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
 }
 
 /* The previous single-button active rule is superseded by the two-half switch. */
@@ -1984,6 +2081,10 @@ body::after {
   background: rgba(250,102,153,.13);
 }
 
+.controls {
+  gap: 6px;
+}
+
 .controls-side:first-child {
-  gap: 5px;
+  gap: 0;
 }

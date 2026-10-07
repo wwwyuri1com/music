@@ -7,6 +7,7 @@
     cover: $('.cover-layer'),
     stage: $('.stage'),
     hero: $('.hero'),
+    discWrap: $('#lyrics-disc'),
     mascot: $('#mascot'),
     title: $('#track-title'),
     story: $('#track-story'),
@@ -16,6 +17,7 @@
     current: $('#current-time'),
     duration: $('#duration'),
     play: $('#play'),
+    lyricsToggle: $('#lyrics-toggle'),
     prev: $('#prev'),
     next: $('#next'),
     metaLink: $('#track-meta-link'),
@@ -23,6 +25,7 @@
     playbackAll: $('#playback-all'),
     playbackMode: $('#playback-mode'),
     playbackModeMark: $('#playback-mode-mark'),
+    playbackListPicker: $('#playback-list-picker'),
     currentFavorite: $('#current-favorite'),
     customListPicker: $('#custom-list-picker'),
     playerShell: $('.player-shell'),
@@ -32,7 +35,6 @@
     trackList: $('#track-list'),
     playlistFilters: $$('.playlist-filter'),
     contentFilterTabs: $('.content-filter-tabs'),
-    lyricsBtn: $('#lyrics-btn'),
     lyricsPanel: $('#lyrics-panel'),
     closeLyrics: $('#close-lyrics'),
     lyricsContent: $('#lyrics-content'),
@@ -76,6 +78,9 @@
 
   const REPEAT_ONE_KEY = 'yuri1_music_repeat_one';
   const LEGACY_FAVORITES_KEY = 'yuri1_music_favorites';
+  const CUSTOM_LISTS_KEY = 'yuri1_music_custom_lists_v1';
+  const PLAYER_STATE_KEY = 'yuri1_music_player_state_v1';
+  const PLAYER_STATE_VERSION = 1;
 
   const LIST_DEFS = [
     {
@@ -104,19 +109,80 @@
     }
   ];
 
-  let repeatOne = localStorage.getItem(REPEAT_ONE_KEY) === '1';
-  // Custom-list playback/view state is intentionally session-only for this prototype.
+  function readPlayerState() {
+    try {
+      const value = JSON.parse(localStorage.getItem(PLAYER_STATE_KEY) || 'null');
+      if (!value || value.version !== PLAYER_STATE_VERSION) return null;
+      return value;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  const restoredPlayerState = readPlayerState();
+  const storedRepeatOne = localStorage.getItem(REPEAT_ONE_KEY);
+  let repeatOne = storedRepeatOne === '1';
+  if (storedRepeatOne === null && typeof restoredPlayerState?.repeatOne === 'boolean') {
+    repeatOne = restoredPlayerState.repeatOne;
+  }
+
   let playbackList = 0; // 0 = ALL Track, 1..6 = custom list playback pool
   let lastPlaybackList = 1; // remembers the last FAV bank while ALL Track is active
-  let trackListView = 1; // 1..6 = which custom list's hearts are being edited; list 1 is the default
+  let trackListView = 1; // 1..6 = selected custom-list context
   let contentFilter = 'ALL'; // ALL | FAV_ONLY | any Type value
   const customLists = new Map(LIST_DEFS.map(def => [def.id, new Set()]));
+  let pendingResumeTime = null;
+  let pendingResumeTrackKey = '';
+  let lastStateWriteAt = 0;
+  let lastMediaPositionUpdateAt = 0;
 
-  // Carry the previous single Favorite set into list 1 for continuity while testing.
-  try {
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_FAVORITES_KEY) || '[]');
-    if (Array.isArray(legacy)) legacy.forEach(key => customLists.get(1).add(String(key)));
-  } catch (_) {}
+  function validListId(value) {
+    const id = Number(value);
+    return LIST_DEFS.some(def => def.id === id) ? id : 0;
+  }
+
+  function loadCustomLists() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(CUSTOM_LISTS_KEY) || 'null');
+      if (!stored || typeof stored !== 'object') return false;
+      for (const def of LIST_DEFS) {
+        const items = stored[String(def.id)];
+        if (!Array.isArray(items)) continue;
+        const set = customLists.get(def.id);
+        items.forEach(key => set.add(String(key)));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function persistCustomLists() {
+    try {
+      const data = {};
+      for (const def of LIST_DEFS) data[String(def.id)] = [...customLists.get(def.id)];
+      localStorage.setItem(CUSTOM_LISTS_KEY, JSON.stringify(data));
+    } catch (_) {}
+  }
+
+  // Migrate the old single Favorite set only when no six-list state exists yet.
+  if (!loadCustomLists()) {
+    try {
+      const legacy = JSON.parse(localStorage.getItem(LEGACY_FAVORITES_KEY) || '[]');
+      if (Array.isArray(legacy)) legacy.forEach(key => customLists.get(1).add(String(key)));
+      persistCustomLists();
+    } catch (_) {}
+  }
+
+  if (restoredPlayerState) {
+    playbackList = validListId(restoredPlayerState.playbackList);
+    lastPlaybackList = validListId(restoredPlayerState.lastPlaybackList) || playbackList || 1;
+    trackListView = validListId(restoredPlayerState.trackListView) || playbackList || lastPlaybackList || 1;
+    if (typeof restoredPlayerState.contentFilter === 'string' && restoredPlayerState.contentFilter) {
+      contentFilter = restoredPlayerState.contentFilter;
+    }
+    if (typeof restoredPlayerState.repeatOne === 'boolean') repeatOne = restoredPlayerState.repeatOne;
+  }
 
   function listDef(id) {
     return LIST_DEFS.find(def => def.id === Number(id)) || null;
@@ -140,6 +206,36 @@
     return tracks.map((t, i) => isInList(t, listId) ? i : -1).filter(i => i >= 0);
   }
 
+
+  function playerStateSnapshot(positionOverride = null) {
+    const track = tracks[currentIndex] || null;
+    const rawPosition = positionOverride !== null ? Number(positionOverride) : Number(els.audio?.currentTime || 0);
+    return {
+      version: PLAYER_STATE_VERSION,
+      trackKey: track ? trackKey(track) : '',
+      position: Number.isFinite(rawPosition) && rawPosition >= 0 ? rawPosition : 0,
+      playbackList,
+      lastPlaybackList,
+      trackListView,
+      contentFilter,
+      repeatOne,
+      updatedAt: Date.now()
+    };
+  }
+
+  function persistPlayerState(positionOverride = null) {
+    if (!tracks.length) return;
+    try {
+      localStorage.setItem(PLAYER_STATE_KEY, JSON.stringify(playerStateSnapshot(positionOverride)));
+      lastStateWriteAt = Date.now();
+    } catch (_) {}
+  }
+
+  function persistPlayerStateThrottled() {
+    const now = Date.now();
+    if (now - lastStateWriteAt >= 2000) persistPlayerState();
+  }
+
   function renderRepeatOne() {
     if (!els.repeatOne) return;
     els.repeatOne.setAttribute('aria-pressed', repeatOne ? 'true' : 'false');
@@ -157,8 +253,9 @@
     els.playbackMode.dataset.list = String(def.id);
     els.playbackMode.classList.toggle('active', favOn);
     els.playbackMode.setAttribute('aria-pressed', String(favOn));
-    els.playbackMode.setAttribute('aria-label', favOn ? `FAV mode on: custom list ${def.id}` : `Resume FAV mode: custom list ${def.id}`);
-    els.playbackMode.title = favOn ? `FAV mode: custom list ${def.id} — click to next list` : `Resume FAV mode: custom list ${def.id}`;
+    els.playbackMode.setAttribute('aria-label', favOn ? `FAV mode on: custom list ${def.id}. Choose playback list` : `Choose FAV playlist. Last used custom list ${def.id}`);
+    els.playbackMode.title = favOn ? `FAV mode: custom list ${def.id} — choose playlist` : `FAV playlists — last used custom list ${def.id}`;
+    renderPlaybackListPicker();
 
     if (els.playbackAll) {
       els.playbackAll.classList.toggle('active', !favOn);
@@ -220,6 +317,7 @@
     if (!els.customListPicker || !els.currentFavorite) return;
     const willOpen = els.customListPicker.hidden;
     if (willOpen) {
+      closePlaybackListPicker();
       renderListPicker();
       els.customListPicker.hidden = false;
       els.currentFavorite.setAttribute('aria-expanded', 'true');
@@ -229,8 +327,70 @@
     }
   }
 
+  function buildPlaybackListPicker() {
+    if (!els.playbackListPicker) return;
+    els.playbackListPicker.innerHTML = LIST_DEFS.map(def => `
+      <button class="custom-list-pick playback-list-pick" type="button" data-list-id="${def.id}" aria-pressed="false" aria-label="Play custom list ${def.id}" title="${def.label}">
+        ${def.icon}
+      </button>`).join('');
+
+    els.playbackListPicker.querySelectorAll('.playback-list-pick').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const listId = Number(btn.dataset.listId);
+        if (!listId) return;
+        activateFavList(listId);
+        closePlaybackListPicker();
+      });
+    });
+    renderPlaybackListPicker();
+  }
+
+  function renderPlaybackListPicker() {
+    if (!els.playbackListPicker) return;
+    els.playbackListPicker.querySelectorAll('.playback-list-pick').forEach(btn => {
+      const listId = Number(btn.dataset.listId);
+      const active = playbackList === listId;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function closePlaybackListPicker() {
+    if (!els.playbackListPicker || !els.playbackMode) return;
+    els.playbackListPicker.hidden = true;
+    els.playbackMode.setAttribute('aria-expanded', 'false');
+    els.playerShell?.classList.remove('playback-picker-open');
+  }
+
+  function togglePlaybackListPicker({ forceOpen = false } = {}) {
+    if (!els.playbackListPicker || !els.playbackMode) return;
+    const willOpen = forceOpen || els.playbackListPicker.hidden;
+    if (willOpen) {
+      closeListPicker();
+      renderPlaybackListPicker();
+      els.playbackListPicker.hidden = false;
+      els.playbackMode.setAttribute('aria-expanded', 'true');
+      els.playerShell?.classList.add('playback-picker-open');
+    } else {
+      closePlaybackListPicker();
+    }
+  }
+
+  function fallbackFromEmptyPlaybackList({ notify = true } = {}) {
+    if (!playbackList || listTrackIndices(playbackList).length) return false;
+    const emptyList = playbackList;
+    switchToAllTrack();
+    if (notify) {
+      setStatus(`Custom list ${emptyList} is empty · ALL Track`);
+      window.setTimeout(() => setStatus(''), 1100);
+    }
+    return true;
+  }
+
   function nextPlayableIndex(direction = 1, fromIndex = currentIndex) {
     if (!tracks.length) return -1;
+    fallbackFromEmptyPlaybackList();
     const step = direction >= 0 ? 1 : -1;
     if (!playbackList) return (fromIndex + step + tracks.length) % tracks.length;
 
@@ -244,11 +404,7 @@
 
   function moveTrack(direction, { autoplay = true, updateHistory = true } = {}) {
     const idx = nextPlayableIndex(direction);
-    if (idx < 0) {
-      setStatus(`Custom list ${playbackList} is empty.`);
-      window.setTimeout(() => setStatus(''), 1100);
-      return false;
-    }
+    if (idx < 0) return false;
     setTrack(idx, { autoplay, updateHistory });
     return true;
   }
@@ -260,13 +416,12 @@
     const key = trackKey(track);
     if (shouldInclude) set.add(key);
     else set.delete(key);
+    persistCustomLists();
 
     if (playbackList === listId) {
       const indices = listTrackIndices(listId);
       if (!indices.length) {
-        els.audio.pause();
-        setStatus(`Custom list ${listId} is empty.`);
-        window.setTimeout(() => setStatus(''), 1100);
+        fallbackFromEmptyPlaybackList();
       } else if (!isInList(tracks[currentIndex], listId)) {
         const wasPlaying = !els.audio.paused && !els.audio.ended;
         const idx = nextPlayableIndex(1);
@@ -277,12 +432,41 @@
     renderPlaylist();
     renderCurrentFavorite();
     renderPlaybackMode();
+    persistPlayerState();
+  }
+
+  function refreshTrackListTabs() {
+    if (!els.playlistFilters) return;
+    els.playlistFilters.forEach(btn => {
+      const active = Number(btn.dataset.listView) === Number(trackListView);
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+      btn.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function setTrackListView(listId, { syncPlayback = false } = {}) {
+    const def = listDef(listId) || listDef(1);
+    if (!def) return false;
+    trackListView = def.id;
+    lastPlaybackList = def.id;
+    if (syncPlayback) {
+      playbackList = def.id;
+      renderPlaybackMode();
+      renderPlaybackListPicker();
+    }
+    refreshTrackListTabs();
+    renderPlaylist();
+    persistPlayerState();
+    return true;
   }
 
   function switchToAllTrack({ notify = false } = {}) {
     if (playbackList) lastPlaybackList = playbackList;
     playbackList = 0;
     renderPlaybackMode();
+    renderPlaybackListPicker();
+    persistPlayerState();
     if (notify) {
       setStatus('FAV OFF');
       window.setTimeout(() => setStatus(''), 900);
@@ -291,32 +475,28 @@
 
   function activateFavList(listId) {
     const def = listDef(listId) || listDef(1);
-    if (!def) return;
+    if (!def) return false;
     const wasPlaying = !els.audio.paused && !els.audio.ended;
     lastPlaybackList = def.id;
     playbackList = def.id;
+    trackListView = def.id;
     renderPlaybackMode();
+    refreshTrackListTabs();
+    persistPlayerState();
 
     const indices = listTrackIndices(playbackList);
+    // Selecting FAV is a mode change first. An empty custom list stays selected
+    // so the ALL/FAV switch visibly moves to FAV and the user can choose another
+    // list. Only an actual playback / previous / next operation falls back to ALL.
     if (!indices.length) {
-      els.audio.pause();
-      setStatus(`Custom list ${playbackList} is empty.`);
-      window.setTimeout(() => setStatus(''), 1100);
-      return;
+      renderPlaybackListPicker();
+      return true;
     }
 
     if (!isInList(tracks[currentIndex], playbackList)) {
       setTrack(indices[0], { autoplay: wasPlaying, updateHistory: true });
     }
-  }
-
-  function cycleFavPlaybackMode() {
-    if (!playbackList) {
-      activateFavList(lastPlaybackList);
-      return;
-    }
-    const nextList = (playbackList % LIST_DEFS.length) + 1;
-    activateFavList(nextList);
+    return true;
   }
 
   function sourceKey(id) {
@@ -460,6 +640,50 @@
   }
   function absoluteUrl(path) {
     return new URL(path, SITE_ROOT).href;
+  }
+
+
+  function updateMediaSessionPlaybackState() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = els.audio.paused ? 'paused' : 'playing';
+    } catch (_) {}
+  }
+
+  function updateMediaSessionPosition(force = false) {
+    if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function') return;
+    const now = performance.now();
+    if (!force && now - lastMediaPositionUpdateAt < 900) return;
+    const duration = Number(els.audio.duration);
+    const position = Number(els.audio.currentTime);
+    const rate = Number(els.audio.playbackRate) || 1;
+    if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(position)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: rate,
+        position: Math.min(Math.max(0, position), Math.max(0, duration - 0.001))
+      });
+      lastMediaPositionUpdateAt = now;
+    } catch (_) {}
+  }
+
+  function updateMediaSessionMetadata(track, coverRaw = null) {
+    if (!track || !('mediaSession' in navigator) || typeof window.MediaMetadata !== 'function') return;
+    const canonicalCover = absoluteUrl(coverRaw || coverPath(track));
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.TITLE || 'Untitled',
+        artist: ocLabel(track) || 'YURI NO1',
+        album: track.STORY ? `${track.STORY} · YURI NO1` : 'YURI NO1 Music',
+        artwork: [{ src: canonicalCover, type: 'image/jpeg' }]
+      });
+    } catch (_) {}
+  }
+
+  function setMediaAction(action, handler) {
+    if (!('mediaSession' in navigator)) return;
+    try { navigator.mediaSession.setActionHandler(action, handler); } catch (_) {}
   }
   function trackUrl(track) {
     const u = new URL(INDEX_URL);
@@ -660,11 +884,15 @@
     if (els.lyricsContent) els.lyricsContent.scrollTop = 0;
   }
 
-  function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true } = {}) {
+  function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true, resumeTime = null } = {}) {
     if (!tracks.length) return;
     currentIndex = (index + tracks.length) % tracks.length;
     const t = tracks[currentIndex];
+    pendingResumeTime = Number.isFinite(Number(resumeTime)) && Number(resumeTime) > 0 ? Number(resumeTime) : null;
+    pendingResumeTrackKey = pendingResumeTime !== null ? trackKey(t) : '';
+    updateMediaSessionMetadata(t);
     closeListPicker();
+    closePlaybackListPicker();
 
     els.app.classList.remove('playing');
     els.title.textContent = t.TITLE || 'Untitled';
@@ -672,6 +900,7 @@
     els.theme.textContent = ocLabel(t);
     const serial = ++assetRenderSerial;
     els.audio.pause();
+    els.audio.preload = 'auto';
     els.audio.removeAttribute('src');
     els.audio.load();
 
@@ -688,6 +917,8 @@
       const audioRaw = record?.mp3
         ? `music-core/${encodeURIComponent(record.mp3)}`
         : audioPath(t);
+
+      updateMediaSessionMetadata(t, coverRaw);
 
       versionedAsset(coverRaw).then(coverUrl => {
         if (serial !== assetRenderSerial) return;
@@ -715,6 +946,7 @@
     els.duration.textContent = '0:00';
     els.play.innerHTML = ICONS.play;
     els.play.setAttribute('aria-label', 'Play');
+    els.play.setAttribute('title', 'Play / Pause');
 
     const link = postLink(t);
     if (els.metaLink) {
@@ -729,6 +961,7 @@
     if (trackView) sendGaEvent('music_track_view', t);
     renderPlaylist();
     if (lyricsPanelOpen()) loadLyrics(t);
+    persistPlayerState(pendingResumeTrackKey === trackKey(t) ? pendingResumeTime : 0);
 
   }
 
@@ -756,7 +989,7 @@
   function matchesContentFilter(track) {
     if (contentFilter === 'ALL') return true;
     if (contentFilter === 'FAV_ONLY') {
-      return isInList(track, trackListView);
+      return trackListView ? isInList(track, trackListView) : isInAnyList(track);
     }
     return trackType(track).toLowerCase() === String(contentFilter).toLowerCase();
   }
@@ -791,6 +1024,7 @@
           item.setAttribute('aria-pressed', String(active));
         });
         renderPlaylist();
+        persistPlayerState();
       });
       refresh();
       container.appendChild(btn);
@@ -815,14 +1049,16 @@
       const type = trackType(t);
       const editingList = trackListView;
       const favored = editingList ? isInList(t, editingList) : false;
-      row.className = `track-item${i === currentIndex ? ' active' : ''}`;
+      const favoriteControl = editingList ? `
+        <button class="track-favorite${favored ? ' active' : ''}" type="button" aria-pressed="${favored}" aria-label="${favored ? `Remove from custom list ${editingList}` : `Add to custom list ${editingList}`}" title="Custom list ${editingList}">${HEART_ICON}</button>` : '';
+      row.className = `track-item${i === currentIndex ? ' active' : ''}${editingList ? '' : ' library-view'}`;
       row.setAttribute('role', 'button');
       row.tabIndex = 0;
       row.innerHTML = `
         <img alt="" src="${coverPath(t)}">
         <span class="track-copy-row"><b>${escapeHtml(t.TITLE || 'Untitled')}</b><span>${escapeHtml(t.STORY || '')}</span></span>
         <span class="track-side"><span class="theme">${escapeHtml(ocLabel(t))}</span><span class="track-type">${escapeHtml(type)}</span></span>
-        <button class="track-favorite${favored ? ' active' : ''}" type="button" aria-pressed="${favored}" aria-label="${favored ? `Remove from custom list ${editingList}` : `Add to custom list ${editingList}`}" title="Custom list ${editingList}">${HEART_ICON}</button>`;
+        ${favoriteControl}`;
 
       const thumb = row.querySelector('img');
       versionedAsset(coverPath(t)).then(url => {
@@ -830,9 +1066,14 @@
       });
 
       const selectTrack = () => {
-        if (playbackList && !isInList(t, playbackList)) {
-          switchToAllTrack({ notify: true });
-        }
+        const sourceList = Number(trackListView) || lastPlaybackList || 1;
+        // A track chosen from a custom-list context belongs to that playback context.
+        // Do not silently fall back to ALL merely because the row itself is not yet
+        // saved in that list; the list tab is the user's explicit destination.
+        lastPlaybackList = sourceList;
+        playbackList = sourceList;
+        renderPlaybackMode();
+        renderPlaybackListPicker();
         setTrack(i, { autoplay: !els.audio.paused, updateHistory: true });
         els.playlist.classList.remove('open');
       };
@@ -890,7 +1131,7 @@
   function isSwipeBlockedTarget(target) {
     if (target?.closest?.('.track-meta-link')) return false;
     return Boolean(target?.closest?.(
-      'button, a, input, select, textarea, label, .player-shell, .playlist, .topbar'
+      'button, a, input, select, textarea, label, .disc-wrap, .player-shell, .playlist, .topbar'
     ));
   }
 
@@ -1022,22 +1263,47 @@
     });
   }
 
-  async function togglePlay() {
-    if (els.audio.paused) {
-      if (playbackList && !isInList(tracks[currentIndex], playbackList)) {
-        const indices = listTrackIndices(playbackList);
-        if (!indices.length) {
-          setStatus(`Custom list ${playbackList} is empty.`);
-          window.setTimeout(() => setStatus(''), 1100);
-          return;
-        }
+  async function resumePlayback() {
+    fallbackFromEmptyPlaybackList();
+    if (playbackList && !isInList(tracks[currentIndex], playbackList)) {
+      const indices = listTrackIndices(playbackList);
+      if (indices.length) {
         setTrack(indices[0], { autoplay: true, updateHistory: true });
         return;
       }
-      try { await els.audio.play(); } catch (_) {}
-    } else {
-      els.audio.pause();
     }
+    try { await els.audio.play(); } catch (_) {}
+  }
+
+  async function togglePlay() {
+    if (els.audio.paused) await resumePlayback();
+    else els.audio.pause();
+  }
+
+  function configureMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    setMediaAction('play', () => resumePlayback());
+    setMediaAction('pause', () => els.audio.pause());
+    setMediaAction('previoustrack', () => moveTrack(-1, { autoplay: true, updateHistory: true }));
+    setMediaAction('nexttrack', () => moveTrack(1, { autoplay: true, updateHistory: true }));
+    setMediaAction('seekbackward', details => {
+      const offset = Number(details?.seekOffset) || 10;
+      if (Number.isFinite(els.audio.duration)) els.audio.currentTime = Math.max(0, els.audio.currentTime - offset);
+      updateMediaSessionPosition(true);
+      persistPlayerState();
+    });
+    setMediaAction('seekforward', details => {
+      const offset = Number(details?.seekOffset) || 10;
+      if (Number.isFinite(els.audio.duration)) els.audio.currentTime = Math.min(els.audio.duration, els.audio.currentTime + offset);
+      updateMediaSessionPosition(true);
+      persistPlayerState();
+    });
+    setMediaAction('seekto', details => {
+      if (!Number.isFinite(Number(details?.seekTime)) || !Number.isFinite(els.audio.duration)) return;
+      els.audio.currentTime = Math.min(Math.max(0, Number(details.seekTime)), els.audio.duration);
+      updateMediaSessionPosition(true);
+      persistPlayerState();
+    });
   }
 
   els.metaLink?.addEventListener('click', e => {
@@ -1048,13 +1314,16 @@
     }
   });
 
-  els.play.addEventListener('click', togglePlay);
   els.prev.addEventListener('click', () => moveTrack(-1, { autoplay: true }));
   els.next.addEventListener('click', () => moveTrack(1, { autoplay: true }));
   els.audio.addEventListener('play', () => {
     els.app.classList.add('playing');
+    updateMediaSessionPlaybackState();
+    updateMediaSessionPosition(true);
+    persistPlayerState();
     els.play.innerHTML = ICONS.pause;
     els.play.setAttribute('aria-label', 'Pause');
+    els.play.setAttribute('title', 'Play / Pause');
     const t = tracks[currentIndex];
     const key = t ? trackKey(t) : '';
     if (key && !playedTrackKeys.has(key)) {
@@ -1064,11 +1333,28 @@
   });
   els.audio.addEventListener('pause', () => {
     els.app.classList.remove('playing');
+    updateMediaSessionPlaybackState();
+    updateMediaSessionPosition(true);
+    persistPlayerState();
     els.play.innerHTML = ICONS.play;
     els.play.setAttribute('aria-label', 'Play');
+    els.play.setAttribute('title', 'Play / Pause');
   });
   els.audio.addEventListener('loadedmetadata', () => {
     els.duration.textContent = fmt(els.audio.duration);
+    const t = tracks[currentIndex];
+    if (t && pendingResumeTime !== null && pendingResumeTrackKey === trackKey(t)) {
+      const maxPosition = Number.isFinite(els.audio.duration) ? Math.max(0, els.audio.duration - 0.25) : pendingResumeTime;
+      els.audio.currentTime = Math.min(Math.max(0, pendingResumeTime), maxPosition);
+      pendingResumeTime = null;
+      pendingResumeTrackKey = '';
+      els.current.textContent = fmt(els.audio.currentTime);
+      const restoredP = els.audio.duration ? (els.audio.currentTime / els.audio.duration) * 100 : 0;
+      els.seek.value = restoredP;
+      els.seek.style.setProperty('--p', `${restoredP}%`);
+      persistPlayerState();
+    }
+    updateMediaSessionPosition(true);
     const q = new URLSearchParams(location.search);
     if (q.get('id') || q.get('track')) {
       const t = tracks[currentIndex];
@@ -1088,10 +1374,13 @@
     const p = els.audio.duration ? (els.audio.currentTime / els.audio.duration) * 100 : 0;
     els.seek.value = p;
     els.seek.style.setProperty('--p', `${p}%`);
+    updateMediaSessionPosition();
+    persistPlayerStateThrottled();
   });
   els.audio.addEventListener('ended', () => {
     const t = tracks[currentIndex];
     sendGaEvent('music_complete', t);
+    persistPlayerState(0);
     if (repeatOne) {
       els.audio.currentTime = 0;
       els.audio.play().catch(() => {});
@@ -1103,16 +1392,26 @@
     const p = Number(els.seek.value);
     els.seek.style.setProperty('--p', `${p}%`);
     if (els.audio.duration) els.audio.currentTime = (p / 100) * els.audio.duration;
+    updateMediaSessionPosition(true);
+    persistPlayerState();
   });
 
   els.repeatOne?.addEventListener('click', () => {
     repeatOne = !repeatOne;
     localStorage.setItem(REPEAT_ONE_KEY, repeatOne ? '1' : '0');
     renderRepeatOne();
+    persistPlayerState();
   });
 
-  els.playbackAll?.addEventListener('click', () => switchToAllTrack());
-  els.playbackMode?.addEventListener('click', cycleFavPlaybackMode);
+  els.playbackAll?.addEventListener('click', () => {
+    switchToAllTrack();
+    closePlaybackListPicker();
+  });
+  els.playbackMode?.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!playbackList) activateFavList(lastPlaybackList);
+    togglePlaybackListPicker();
+  });
 
   els.currentFavorite?.addEventListener('click', e => {
     e.stopPropagation();
@@ -1120,15 +1419,29 @@
   });
 
   els.customListPicker?.addEventListener('click', e => e.stopPropagation());
+  els.playbackListPicker?.addEventListener('click', e => e.stopPropagation());
   document.addEventListener('click', e => {
-    if (!els.customListPicker || els.customListPicker.hidden) return;
-    if (els.currentFavorite?.contains(e.target) || els.customListPicker.contains(e.target)) return;
-    closeListPicker();
+    if (els.customListPicker && !els.customListPicker.hidden) {
+      if (!els.currentFavorite?.contains(e.target) && !els.customListPicker.contains(e.target)) closeListPicker();
+    }
+    if (els.playbackListPicker && !els.playbackListPicker.hidden) {
+      if (!els.playbackMode?.contains(e.target) && !els.playbackListPicker.contains(e.target)) closePlaybackListPicker();
+    }
   });
 
   els.playlistBtn.addEventListener('click', () => {
     closeLyrics();
     closeListPicker();
+    closePlaybackListPicker();
+
+    const willOpen = !els.playlist.classList.contains('open');
+    if (willOpen) {
+      // TRACK LIST always opens on the same custom list shown in the lower-left
+      // playback switch. If ALL is active, remember the most recently used list.
+      trackListView = playbackList || lastPlaybackList || 1;
+      refreshTrackListTabs();
+      renderPlaylist();
+    }
     els.playlist.classList.toggle('open');
   });
   els.closePlaylist.addEventListener('click', () => els.playlist.classList.remove('open'));
@@ -1138,30 +1451,27 @@
     if (!container) return;
     container.replaceChildren();
 
+    // Only the six custom lists belong here. The old TRACK tab was redundant and
+    // caused a second, conflicting playback context.
     const values = LIST_DEFS.map(def => def.id);
     const buttons = values.map(value => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'playlist-filter custom-list-tab';
       btn.setAttribute('role', 'tab');
+      btn.dataset.listView = String(value);
+
       const def = listDef(value);
       btn.innerHTML = `<span class="list-tab-token"><sup>${def.sup}</sup><span class="list-tab-icon">${def.icon}</span></span>`;
       btn.title = `Custom list ${def.id}: ${def.label}`;
-      btn.dataset.listView = String(def.id);
-      const refresh = () => {
-        const active = trackListView === value;
-        btn.classList.toggle('active', active);
-        btn.setAttribute('aria-selected', String(active));
-        btn.setAttribute('aria-pressed', String(active));
-      };
+
       btn.addEventListener('click', () => {
-        trackListView = value;
-        buttons.forEach(item => item.refresh());
-        renderPlaylist();
+        // Choosing a list in TRACK LIST is also choosing the active playback list.
+        // Keep the lower-left FAV switch and TRACK LIST in one shared state.
+        setTrackListView(value, { syncPlayback: true });
       });
-      refresh();
       container.appendChild(btn);
-      return { btn, refresh };
+      return btn;
     });
 
     const label = document.createElement('span');
@@ -1170,15 +1480,24 @@
     label.setAttribute('aria-hidden', 'true');
     container.appendChild(label);
 
-    els.playlistFilters = buttons.map(item => item.btn);
+    els.playlistFilters = buttons;
+    refreshTrackListTabs();
   }
 
 
-
-  els.lyricsBtn?.addEventListener('click', () => {
+  const toggleLyricsPanel = () => {
     if (lyricsPanelOpen()) closeLyrics();
     else openLyrics();
+  };
+  els.discWrap?.addEventListener('click', e => {
+    if (e.target instanceof Element && e.target.closest('#play')) return;
+    togglePlay();
   });
+  els.play?.addEventListener('click', e => {
+    e.stopPropagation();
+    togglePlay();
+  });
+  els.lyricsToggle?.addEventListener('click', toggleLyricsPanel);
   els.closeLyrics?.addEventListener('click', closeLyrics);
 
   // Close Tracks/Lyrics only when the user taps the non-interactive background.
@@ -1187,7 +1506,7 @@
     if (performance.now() < suppressPanelDismissUntil) return;
     const target = e.target;
     if (!(target instanceof Element)) return;
-    if (target.closest('.player-shell, .playlist, .lyrics-panel, .topbar')) return;
+    if (target.closest('.disc-wrap, .player-shell, .playlist, .lyrics-panel, .topbar')) return;
 
     const clickedAppBackground = Boolean(target.closest('.music-app'));
     const clickedDesktopBackground = target === document.body || target === document.documentElement;
@@ -1203,8 +1522,17 @@
     }
   });
 
+  window.addEventListener('pagehide', () => persistPlayerState());
+  window.addEventListener('beforeunload', () => persistPlayerState());
+  document.addEventListener('freeze', () => persistPlayerState());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistPlayerState();
+  });
+
+  configureMediaSession();
   renderRepeatOne();
   renderPlaybackMode();
+  buildPlaybackListPicker();
   buildListPicker();
   renderCurrentFavorite();
 
@@ -1224,6 +1552,11 @@
           throw new Error(`Machine identity must be lowercase: ${id || theme}`);
         }
       }
+      // Keep restored filters only when the current catalog still supports them.
+      if (contentFilter !== 'ALL' && contentFilter !== 'FAV_ONLY') {
+        const typeExists = availableTrackTypes().some(value => value.toLowerCase() === contentFilter.toLowerCase());
+        if (!typeExists) contentFilter = 'ALL';
+      }
       renderPlaybackMode();
       buildListTabs();
       buildContentFilters();
@@ -1238,12 +1571,25 @@
         (requestedTrack === null || Number(t.Img) === requestedTrack)
       );
 
+      const restoredKey = String(restoredPlayerState?.trackKey || '');
+      const restoredIndex = restoredKey ? tracks.findIndex(t => trackKey(t) === restoredKey) : -1;
+      const requestedIndex = hasTrackQuery ? (idx >= 0 ? idx : 0) : (restoredIndex >= 0 ? restoredIndex : 0);
+      const requestedKey = tracks[requestedIndex] ? trackKey(tracks[requestedIndex]) : '';
+      const restorePosition = restoredKey && restoredKey === requestedKey
+        ? Math.max(0, Number(restoredPlayerState?.position) || 0)
+        : 0;
+
       if (hasTrackQuery) {
-        setTrack(idx >= 0 ? idx : 0, { updateHistory: false, updateSeo: true, trackView: true });
+        setTrack(requestedIndex, {
+          updateHistory: false, updateSeo: true, trackView: true, autoplay: false, resumeTime: restorePosition
+        });
       } else {
         applyIndexSeo();
-        setTrack(0, { updateHistory: false, updateSeo: false, trackView: false });
+        setTrack(requestedIndex, {
+          updateHistory: false, updateSeo: false, trackView: false, autoplay: false, resumeTime: restorePosition
+        });
       }
+      updateMediaSessionPlaybackState();
       setStatus('');
     } catch (err) {
       console.error(err);

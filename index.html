@@ -127,9 +127,12 @@
 
     <section class="stage">
       <div class="hero">
-        <div class="disc-wrap" aria-hidden="true">
+        <div id="lyrics-disc" class="disc-wrap" aria-label="Play or pause track" title="Play / Pause">
           <div class="disc-halo"></div>
           <img id="mascot" class="mascot" alt="">
+          <button id="play" class="disc-play-btn" type="button" aria-label="Play" title="Play / Pause">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.2 5.3a1 1 0 0 1 1.53-.84l9.1 6.2a1.6 1.6 0 0 1 0 2.66l-9.1 6.2A1 1 0 0 1 8.2 18.7V5.3Z"/></svg>
+          </button>
         </div>
         <div class="track-copy">
           <h1 id="track-title" class="track-title">YURI1 Music</h1>
@@ -159,23 +162,21 @@
                 <span class="playback-mode-all" aria-hidden="true"><span>ALL</span><span>Track</span></span>
               </button>
               <button id="playback-mode" class="control-btn playback-switch-half playback-mode-btn" type="button"
-                      aria-label="Resume FAV mode" aria-pressed="false" title="FAV mode">
+                      aria-label="Choose FAV playlist" aria-pressed="false" aria-expanded="false" title="FAV playlists">
                 <span id="playback-mode-mark" class="playback-mode-mark" aria-hidden="true"></span>
               </button>
             </div>
-            <button id="lyrics-btn" class="control-btn lyrics-btn" type="button" aria-label="Open lyrics" title="Lyrics">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M6 5h12M6 9h9M6 13h12M6 17h8"/>
-              </svg>
-            </button>
+            <div id="playback-list-picker" class="custom-list-picker playback-list-picker" role="group" aria-label="Choose playback list" hidden></div>
           </div>
 
           <div class="controls-side">
             <button id="prev" class="control-btn" type="button" aria-label="Previous track">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM18.2 5.7a1 1 0 0 1 1.55.83v10.94a1 1 0 0 1-1.55.83l-7.64-5.47a1 1 0 0 1 0-1.66L18.2 5.7Z"/></svg>
             </button>
-            <button id="play" class="control-btn play-btn" type="button" aria-label="Play">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.2 5.3a1 1 0 0 1 1.53-.84l9.1 6.2a1.6 1.6 0 0 1 0 2.66l-9.1 6.2A1 1 0 0 1 8.2 18.7V5.3Z"/></svg>
+            <button id="lyrics-toggle" class="control-btn play-btn lyrics-btn" type="button" aria-label="Open lyrics" title="Lyrics">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M6 5h12M6 9h9M6 13h12M6 17h8"/>
+              </svg>
             </button>
             <button id="next" class="control-btn" type="button" aria-label="Next track">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5.8 5.7a1 1 0 0 0-1.55.83v10.94a1 1 0 0 0 1.55.83l7.64-5.47a1 1 0 0 0 0-1.66L5.8 5.7Z"/></svg>
