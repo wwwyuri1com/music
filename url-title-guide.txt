@@ -1,0 +1,30 @@
+YURI1 Music - url-title
+========================
+
+Editable source: w-music/w-tracklog.json
+
+Each track has an optional field after TITLE:
+  "url-title": ""
+
+- Empty or omitted: URL ending comes from TITLE (same existing default as before).
+- Nonempty: use this exact URL name after normalizing to lowercase.
+  Allowed: a-z, 0-9, hyphens. Example: "url-title": "double-snow"
+- Affects /m/{music-id}/{url-title}/, canonical, sitemap and share URLs only.
+- Does NOT rename ID, Img, music-img, music-mp3, music-text, or any audio/cover.
+- Published URLs should stay stable. Changing url-title changes the final URL.
+
+After editing tracklog locally:
+  Double-click build-music.cmd (requires Python), or run:
+  python tools/build_music_pages.py
+
+To verify without changing files:
+  python tools/build_music_pages.py --check
+
+On GitHub, the existing Pages deployment workflow now runs the same builder
+before uploading the site. This keeps static pages and sitemap synchronized.
+
+The builder also removes obsolete generated /m/ pages and identical uppercase
+lyric duplicates if they exist. It refuses to delete unique lyric contents.
+
+Current build: 22 track pages; original song/asset IDs and lyrics preserved.
+Neither the WWW reference project nor its backup-card code was changed.
