@@ -1,0 +1,15 @@
+YURI1 Music V2 static-PHP base
+
+- index.php contains the page HTML/content shell.
+- common/head.php contains shared head/CSS/metadata/GA/cache behavior.
+- common/footer.php contains the shared JS loader.
+- Includes are optional (@include): if a common include is unavailable, page-owned HTML remains in the PHP file.
+- /data/ is reserved for future permanent content paths.
+- No virtual routing/rewrite has been added yet.
+- Runtime JSON catalog removed. w-music/w-tracklog.php is a generated static PHP array and is embedded into the page for JavaScript.
+- Root-absolute asset paths are used so future /data/.../index.php pages can reuse the same assets without relative-path breakage.
+
+Filename/path convention discussed for future content:
+  source marker: 99-20260924-01_s-ladyl
+  public path:   /data/99-20260924-01/s-ladyl/
+  underscore is only a pre-generation split marker; public paths use folders, lowercase and hyphens.
