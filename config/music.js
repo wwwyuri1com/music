@@ -4,6 +4,7 @@
 
   const els = {
     app: $('.music-app'),
+    immersiveToggle: $('#immersive-toggle'),
     cover: $('.cover-layer'),
     stage: $('.stage'),
     hero: $('.hero'),
@@ -73,6 +74,7 @@
 
   let tracks = [];
   let currentIndex = 0;
+  let immersiveMode = false;
   let lyricsLoadSerial = 0;
   const playedTrackKeys = new Set();
 
@@ -1111,6 +1113,28 @@
     return String(s).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   }
 
+  function renderImmersiveMode() {
+    els.app?.classList.toggle('immersive-mode', immersiveMode);
+    if (!els.immersiveToggle) return;
+    els.immersiveToggle.setAttribute('aria-pressed', String(immersiveMode));
+    els.immersiveToggle.setAttribute('aria-label', immersiveMode ? 'Exit immersive mode' : 'Enter immersive mode');
+    els.immersiveToggle.title = immersiveMode ? 'Exit immersive mode' : 'Immersive mode';
+  }
+
+  function setImmersiveMode(on) {
+    immersiveMode = Boolean(on);
+
+    if (immersiveMode) {
+      if (swipe.active) cancelSwipe();
+      els.playlist?.classList.remove('open');
+      closeLyrics();
+      closeListPicker();
+      closePlaybackListPicker();
+    }
+
+    renderImmersiveMode();
+  }
+
   // =======================================================
   // HORIZONTAL SWIPE NAVIGATION
   // Swipe left = next track, swipe right = previous track.
@@ -1199,6 +1223,7 @@
 
   if (els.stage && els.hero && window.PointerEvent) {
     els.stage.addEventListener('pointerdown', e => {
+      if (immersiveMode) return;
       if (!e.isPrimary || isSwipeBlockedTarget(e.target) || els.playlist.classList.contains('open')) return;
       // Touch/pen are the intended gestures. Mouse drag is ignored to avoid accidental desktop switching.
       if (e.pointerType === 'mouse') return;
@@ -1497,15 +1522,23 @@
     else openLyrics();
   };
   els.discWrap?.addEventListener('click', e => {
+    if (immersiveMode) return;
     if (e.target instanceof Element && e.target.closest('#play')) return;
     togglePlay();
   });
   els.play?.addEventListener('click', e => {
     e.stopPropagation();
+    if (immersiveMode) return;
     togglePlay();
   });
-  els.lyricsToggle?.addEventListener('click', toggleLyricsPanel);
+  els.lyricsToggle?.addEventListener('click', () => {
+    if (!immersiveMode) toggleLyricsPanel();
+  });
   els.closeLyrics?.addEventListener('click', closeLyrics);
+  els.immersiveToggle?.addEventListener('click', e => {
+    e.stopPropagation();
+    setImmersiveMode(!immersiveMode);
+  });
 
   // Close Tracks/Lyrics only when the user taps the non-interactive background.
   // Bottom player controls stay fully usable while a panel is open.
@@ -1524,6 +1557,7 @@
   });
 
   document.addEventListener('keydown', e => {
+    if (immersiveMode) return;
     if (e.code === 'Space' && !/INPUT|BUTTON|A/.test(document.activeElement?.tagName || '')) {
       e.preventDefault(); togglePlay();
     }
@@ -1536,6 +1570,7 @@
     if (document.visibilityState === 'hidden') persistPlayerState();
   });
 
+  renderImmersiveMode();
   configureMediaSession();
   renderRepeatOne();
   renderPlaybackMode();

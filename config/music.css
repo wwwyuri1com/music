@@ -271,6 +271,14 @@ button {
   }
 }
 
+.disc-wrap,
+.disc-wrap *,
+.disc-play-btn,
+.disc-play-btn * {
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0) !important;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
 
 /* =========================================================
    TRACK COPY
@@ -2087,4 +2095,111 @@ position: absolute;
 
 .controls-side:first-child {
   gap: 0;
+}
+
+/* =========================================================
+   IMMERSIVE MODE
+   Additive only: does not replace or restyle the existing UI.
+   ========================================================= */
+
+.immersive-toggle {
+  position: fixed;
+  z-index: 10;
+  left: max(20px, env(safe-area-inset-left));
+  bottom: calc(154px + env(safe-area-inset-bottom));
+
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.20);
+  border-radius: 12px;
+
+  display: grid;
+  place-items: center;
+
+  color: rgba(255,255,255,.92);
+  background: rgba(12,12,18,.38);
+  box-shadow: 0 7px 22px rgba(0,0,0,.18), inset 0 1px rgba(255,255,255,.10);
+  backdrop-filter: blur(14px) saturate(130%);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.immersive-toggle:hover,
+.immersive-toggle:focus-visible {
+  background: rgba(255,255,255,.12);
+  border-color: rgba(255,255,255,.36);
+}
+
+.immersive-toggle:active {
+  transform: scale(.94);
+}
+
+.immersive-toggle svg {
+  grid-area: 1 / 1;
+  width: 19px;
+  height: 19px;
+}
+
+.immersive-exit-icon {
+  display: none;
+}
+
+.music-app.immersive-mode .immersive-enter-icon {
+  display: none;
+}
+
+.music-app.immersive-mode .immersive-exit-icon {
+  display: block;
+}
+
+/* Immersive view is display-only except for the exit button. */
+.music-app.immersive-mode .topbar .brand,
+.music-app.immersive-mode .hero,
+.music-app.immersive-mode .track-meta-link {
+  pointer-events: none;
+}
+
+/* Hide every normal control, including the button over the mascot. */
+.music-app.immersive-mode .disc-play-btn,
+.music-app.immersive-mode #playlist-btn,
+.music-app.immersive-mode .player-shell,
+.music-app.immersive-mode .playlist,
+.music-app.immersive-mode .lyrics-panel,
+.music-app.immersive-mode .status {
+  display: none !important;
+}
+
+.music-app.immersive-mode .track-meta-external {
+  display: none;
+}
+
+/* The exit button is the only interactive control left. */
+.music-app.immersive-mode .immersive-toggle {
+  pointer-events: auto;
+}
+
+@media (max-width: 560px) {
+  .immersive-toggle {
+    left: max(18px, env(safe-area-inset-left));
+    bottom: calc(146px + env(safe-area-inset-bottom));
+  }
+}
+
+/* =========================================================
+   IMMERSIVE TOGGLE POSITION FIX
+   Anchor the fixed button to the centered 360px Music app,
+   not to the viewport edge.
+   ========================================================= */
+.immersive-toggle {
+  left: calc(50% - min(50vw, 180px) + 18px);
+}
+
+@media (max-width: 560px) {
+  .immersive-toggle {
+    left: calc(50% - min(50vw, 180px) + 18px);
+  }
 }

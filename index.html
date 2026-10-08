@@ -118,6 +118,15 @@
   <main class="music-app">
     <div class="cover-layer" aria-hidden="true"></div>
 
+    <button id="immersive-toggle" class="immersive-toggle" type="button" aria-label="Enter immersive mode" aria-pressed="false" title="Immersive mode">
+      <svg class="immersive-enter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+      </svg>
+      <svg class="immersive-exit-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M16 3v3a2 2 0 0 0 2 2h3"/><path d="M8 21v-3a2 2 0 0 0-2-2H3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+      </svg>
+    </button>
+
     <header class="topbar">
       <a class="brand" href="https://www.yuri1.com" target="_blank">© YURI NO1 ♫</a>
       <button id="playlist-btn" class="icon-btn" type="button" aria-label="Open track list">
