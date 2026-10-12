@@ -448,6 +448,16 @@
     return true;
   }
 
+  function nextAutomaticIndex() {
+    // Natural playback advances within the selected FAV bank, wrapping at its
+    // end. Manual previous/next and swipe deliberately retain their existing
+    // boundary behavior (switch to ALL Track).
+    if (!playbackList) return nextPlayableIndex(1);
+    const indices = listTrackIndices(playbackList);
+    if (!indices.length) return nextPlayableIndex(1); // Keep empty-bank fallback.
+    return indices.find(index => index > currentIndex) ?? indices[0];
+  }
+
   function setListMembership(track, listId, shouldInclude) {
     if (!track) return;
     const set = listSet(listId);
@@ -1479,7 +1489,8 @@
       els.audio.play().catch(() => {});
       return;
     }
-    moveTrack(1, { autoplay: true });
+    const nextIndex = nextAutomaticIndex();
+    if (nextIndex >= 0) setTrack(nextIndex, { autoplay: true, updateHistory: true });
   });
   els.seek.addEventListener('input', () => {
     const p = Number(els.seek.value);
