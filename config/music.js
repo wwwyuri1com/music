@@ -34,6 +34,8 @@
     playlist: $('#playlist'),
     closePlaylist: $('#close-playlist'),
     trackList: $('#track-list'),
+    groupToggle: $('#playlist-group-toggle'),
+    groupIcon: $('#playlist-group-icon'),
     playlistFilters: $$('.playlist-filter'),
     contentFilterTabs: $('.content-filter-tabs'),
     lyricsPanel: $('#lyrics-panel'),
@@ -84,6 +86,10 @@
   const PLAYER_STATE_KEY = 'yuri1_music_player_state_v1';
   const PLAYER_STATE_VERSION = 1;
   const FOLDER_STATE_KEY = 'yuri1_music_folder_state_v1';
+  const GROUP_MODE_KEY = 'yuri1_music_group_mode_v1';
+  let characterGroups = [];
+  let typeGroups = [];
+  let groupMode = (()=>{try{return localStorage.getItem(GROUP_MODE_KEY)==='oc'?'oc':'story'}catch(_){return 'story'}})();
 
   const LIST_DEFS = [
     {
@@ -626,10 +632,25 @@
 
   function coreCatalogTracks(html) {
     const doc=new DOMParser().parseFromString(html,'text/html');
+    const config=doc.querySelector('#music-character-groups');
+    const groups=config ? JSON.parse(config.textContent) : [];
+    if (!Array.isArray(groups) || groups.some(group =>
+      !(typeof group === 'string' || (group && typeof group === 'object' && !Array.isArray(group) &&
+      typeof group.keyword === 'string' && typeof (group.icon || '') === 'string' && typeof (group.color || '') === 'string'))
+    )) throw Error('Invalid Music Character Groups');
+    characterGroups=groups.map(group => typeof group === 'string' ? {keyword:group,icon:'',color:''} : group);
+    const typeConfig=doc.querySelector('#music-type-groups');
+    const types=typeConfig ? JSON.parse(typeConfig.textContent) : [];
+    if (!Array.isArray(types) || types.some(group =>
+      !group || typeof group !== 'object' || Array.isArray(group) ||
+      typeof group.type !== 'string' || typeof (group.label || '') !== 'string' ||
+      typeof (group.icon || '') !== 'string' || typeof (group.color || '') !== 'string'
+    )) throw Error('Invalid Music Type Groups');
+    typeGroups=types;
     return [...doc.querySelectorAll('#music-catalog tbody tr')].map(row=>{
       const f=n=>row.querySelector('[data-field="'+n+'"]')?.textContent?.trim() || '';
       if(!/^\d{17}$/.test(f('asset_no')))throw Error('Invalid asset_no');
-      return {asset_no:f('asset_no'),ID:f('work_no'),Img:Number(f('asset_no').slice(-3)),Image:f('Image'),TITLE:f('TITLE'),STORY:f('STORY'),OC:f('OC'),Theme:f('Theme'),PlayerName:f('PlayerName'),Type:f('Type'),Link:f('Link'),YouTube:f('YouTube'),Legacy:f('Legacy')};
+      return {asset_no:f('asset_no'),ID:f('work_no'),Img:Number(f('asset_no').slice(-3)),Image:f('Image'),TITLE:f('TITLE'),STORY:f('STORY'),OC:f('OC'),Theme:f('Theme'),PlayerName:f('PlayerName'),Type:f('Type'),Link:f('Link'),YouTube:f('YouTube'),Legacy:f('Legacy'),StoryMark:f('StoryMark')};
     });
   }
   function trackType(track) {
@@ -1042,7 +1063,44 @@
     return story ? JSON.stringify(['story', story]) : '';
   }
 
+  // Group mode only changes the list presentation. It does not change the
+  // playback pool, track identity, FAV membership or original track order.
   function playlistSections(visible) {
+    if (groupMode === 'oc') {
+      const active = [];
+      const classified = new Set();
+      // Explicit W order controls folder order. Every group tests the ORIGINAL
+      // OC field literally, case-insensitively; no aliases, regex or Theme.
+      for (const config of characterGroups) {
+        const keyword = typeof config === 'string' ? config : config.keyword;
+        const needle = String(keyword || '').toLowerCase();
+        if (!needle) continue;
+        const entries = visible.filter(({t}) => String(t.OC || '').toLowerCase().includes(needle));
+        if (entries.length < 2) continue;
+        const mark = typeof config === 'string' ? {} : {icon:config.icon||'',color:config.color||''};
+        active.push({folder:{key:JSON.stringify(['oc', needle]), title:keyword, entries,mark}});
+        entries.forEach(({i}) => classified.add(i));
+      }
+      // Type is an exclusive fallback ONLY for songs not collected by any
+      // active OC folder. Single OC keyword hits (<2 in this filter) do not
+      // consume tracks, so Type can still organize them.
+      for (const config of typeGroups) {
+        const kind=String(config.type || '').trim().toLocaleLowerCase();
+        if (!kind) continue;
+        const entries=visible.filter(({t,i}) => !classified.has(i) &&
+          trackType(t).trim().toLocaleLowerCase() === kind);
+        if (entries.length < 2) continue;
+        active.push({folder:{key:JSON.stringify(['type',kind]),
+          title:String(config.label || '').trim() || String(config.type).trim(),entries,
+          mark:{icon:config.icon||'',color:config.color||''}}});
+        entries.forEach(({i}) => classified.add(i));
+      }
+      // OC may display one song in multiple OC folders; Type never duplicates
+      // an OC-collected song nor any other Type folder. No source data changes.
+      return [...active, ...visible.filter(({i}) => !classified.has(i)).map(entry => ({entry}))];
+    }
+    // The existing Story behavior is preserved, including first-appearance
+    // order, exact visible-filter counts and legacy collapsed-folder keys.
     const sections = [];
     const folders = new Map();
     const counts = new Map();
@@ -1066,6 +1124,52 @@
     return sections;
   }
 
+  function storyFolderMark(entries) {
+    let common=null;
+    for (const {t} of entries) {
+      let mark={};
+      try { mark=JSON.parse(t.StoryMark || '{}'); } catch (_) { return {}; }
+      if (!mark || typeof mark !== 'object') return {};
+      const current={icon:String(mark.icon||''),color:String(mark.color||'')};
+      if (common === null) common=current;
+      else if (common.icon !== current.icon || common.color.toLowerCase() !== current.color.toLowerCase()) return {};
+    }
+    return common || {};
+  }
+
+  // Lucide is loaded only if the user configured a custom Music folder icon.
+  // The original white folder SVG remains visible if the library is offline.
+  let folderLucideLoad=null;
+  function applyFolderIcons() {
+    if (typeof window === 'undefined' || !els.trackList.querySelectorAll ||
+        !els.trackList.querySelector('[data-lucide]')) return;
+    if (window.lucide?.createIcons) {
+      window.lucide.createIcons();
+      return;
+    }
+    if (!folderLucideLoad) folderLucideLoad=new Promise(resolve=>{
+      const script=document.createElement('script');
+      script.src='https://unpkg.com/lucide@1.47.0';script.async=true;
+      script.onload=()=>resolve(!!window.lucide?.createIcons);
+      script.onerror=()=>resolve(false);
+      document.head.appendChild(script);
+    });
+    folderLucideLoad.then(ready=>{if (ready) window.lucide.createIcons();});
+  }
+
+  const GROUP_ICONS = {
+    story: '<path d="M2 16V4a2 2 0 0 1 2-2h11"/><path d="M5 14H4a2 2 0 1 0 0 4h1"/><path d="M22 18H11a2 2 0 1 0 0 4h11V6H11a2 2 0 0 0-2 2v12"/>', // Lucide book-copy
+    oc: '<path d="M16.051 12.616a1 1 0 0 1 1.909.024l.737 1.452a1 1 0 0 0 .737.535l1.634.256a1 1 0 0 1 .588 1.806l-1.172 1.168a1 1 0 0 0-.282.866l.259 1.613a1 1 0 0 1-1.541 1.134l-1.465-.75a1 1 0 0 0-.912 0l-1.465.75a1 1 0 0 1-1.539-1.133l.258-1.613a1 1 0 0 0-.282-.866l-1.156-1.153a1 1 0 0 1 .572-1.822l1.633-.256a1 1 0 0 0 .737-.535z"/><path d="M8 15H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/>' // Lucide user-star
+  };
+  function renderGroupToggle() {
+    if (!els.groupToggle) return;
+    const label = groupMode === 'oc' ? 'OC' : 'Story';
+    els.groupToggle.title = `Group: ${label}`;
+    els.groupToggle.setAttribute('aria-label', `Group: ${label}. Switch to ${groupMode === 'oc' ? 'Story' : 'OC'}`);
+    els.groupToggle.setAttribute('aria-pressed', String(groupMode === 'oc'));
+    if (els.groupIcon) els.groupIcon.innerHTML = GROUP_ICONS[groupMode];
+  }
+
   function renderPlaylist() {
     els.trackList.replaceChildren();
     const visible = tracks.map((t, i) => ({ t, i })).filter(({ t }) => matchesContentFilter(t));
@@ -1082,8 +1186,9 @@
     const firstFolder = sections.find(section => section.folder)?.folder;
     // On a first visit, expand only the first available folder. Later, restore
     // exact user choices instead of automatically reopening collapsed folders.
-    if (firstFolder && folderOpenState === null) {
-      folderOpenState = new Map([[firstFolder.key, true]]);
+    if (firstFolder && (folderOpenState === null || ![...folderOpenState.keys()].some(key => key.startsWith(`["${groupMode}",`)))) {
+      if (!folderOpenState) folderOpenState = new Map();
+      folderOpenState.set(firstFolder.key, true);
       saveFolderState();
     }
 
@@ -1093,6 +1198,13 @@
         return;
       }
       const { key, title, entries } = section.folder;
+      const folderMark = groupMode === 'story' ? storyFolderMark(entries) : section.folder.mark || {};
+      const validIcon = typeof folderMark.icon === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(folderMark.icon);
+      const validColor = typeof folderMark.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(folderMark.color);
+      // Empty icon means the existing white folder, even if a color is set.
+      const markAttributes = validIcon
+        ? ` data-lucide="${escapeHtml(folderMark.icon)}"${validColor ? ` style="color:${folderMark.color}"` : ''}`
+        : '';
       const open = folderOpenState?.get(key) === true;
       const folder = document.createElement('section');
       folder.className = 'track-folder';
@@ -1107,10 +1219,10 @@
       toggle.setAttribute('aria-expanded', String(open));
       toggle.innerHTML = `
         <svg class="track-folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-        <svg class="track-folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <svg class="track-folder-icon"${markAttributes} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <span class="track-folder-name">${escapeHtml(title)}</span>
         <span class="track-folder-count">${entries.length}</span>`;
-      toggle.title = `Story: ${title}`;
+      toggle.title = `${groupMode === 'oc' ? 'OC' : 'Story'}: ${title}`;
       toggle.addEventListener('click', () => {
         const next = toggle.getAttribute('aria-expanded') !== 'true';
         if (!folderOpenState) folderOpenState = new Map();
@@ -1123,6 +1235,7 @@
       folder.append(toggle, items);
       els.trackList.appendChild(folder);
     });
+    applyFolderIcons();
   }
 
   function renderTrackRow({ t, i }, container) {
@@ -1549,6 +1662,13 @@
     els.playlist.classList.toggle('open');
   });
   els.closePlaylist.addEventListener('click', () => els.playlist.classList.remove('open'));
+  els.groupToggle?.addEventListener('click', () => {
+    groupMode = groupMode === 'story' ? 'oc' : 'story';
+    try { localStorage.setItem(GROUP_MODE_KEY, groupMode); } catch (_) {}
+    renderGroupToggle();
+    renderPlaylist();
+  });
+  renderGroupToggle();
 
   function buildListTabs() {
     const container = $('.playlist-filters');

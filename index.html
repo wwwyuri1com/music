@@ -214,9 +214,12 @@
     <aside id="playlist" class="playlist" aria-label="Track list">
       <div class="playlist-head">
         <strong>Tracks</strong>
-        <button id="close-playlist" class="icon-btn" type="button" aria-label="Close track list">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
-        </button>
+        <div class="playlist-head-actions">
+          <button id="playlist-group-toggle" class="playlist-group-toggle" type="button" aria-label="Group: Story. Switch to OC" title="Group: Story" aria-pressed="false"><span>Group :</span><svg id="playlist-group-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 16V4a2 2 0 0 1 2-2h11"/><path d="M5 14H4a2 2 0 1 0 0 4h1"/><path d="M22 18H11a2 2 0 1 0 0 4h11V6H11a2 2 0 0 0-2 2v12"/></svg></button>
+          <button id="close-playlist" class="icon-btn" type="button" aria-label="Close track list">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
       </div>
       <div class="playlist-filters custom-list-tabs" role="tablist" aria-label="Track and custom list view"></div>
       <div class="playlist-filters content-filter-tabs" role="group" aria-label="Track content filter"></div>

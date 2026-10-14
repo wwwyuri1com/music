@@ -1,4 +1,4 @@
-**[Verse 1]**  
+[Verse 1]
 I loved life once  
 With all my heart  
 We shared our days  
@@ -22,7 +22,7 @@ Not a single thing
 But the battlefield  
 Has grown far beyond that place  
 
-**[Pre-Chorus]**  
+[Pre-Chorus]  
 When you were no longer you  
 And we stepped into other stories  
 When the heroine changed  
@@ -36,7 +36,7 @@ And you were still you
 Only the one behind the wheel  
 Was never quite the same  
 
-**[Chorus]**  
+[Chorus]  
 And that's alright  
 You're now under my wings  
 Wounded by the war  
@@ -55,7 +55,7 @@ Is still the same
 The one beyond the stories  
 The one who wrote history  
 
-**[Verse 2]**  
+[Verse 2]  
 Accusations  
 Resentment  
 A symbolic story  
@@ -73,7 +73,7 @@ Why didn't you tell me
 That the story  
 Wasn't over yet?  
 
-**[Pre-Chorus 2]**  
+[Pre-Chorus 2]  
 That day I couldn't take you away  
 I couldn't bring you home  
 
@@ -82,7 +82,7 @@ I remember everything
 
 But this time I didn't come alone  
 
-**[Chorus]**  
+[Chorus]  
 And that's alright  
 You're now under my wings  
 Wounded by the war  
@@ -101,7 +101,7 @@ Is still the same
 The one beyond the stories  
 The one who wrote history  
 
-**[Bridge]**  
+[Bridge]  
 I'm no longer just the girl  
 Who stayed beside you  
 No longer just the one  
@@ -126,7 +126,7 @@ The golden room still there
 
 And you  
 
-**[Chorus]**  
+[Chorus]  
 That day I couldn't take you away  
 
 But this time I didn't come alone  
@@ -149,8 +149,8 @@ Who wrote history
 I haven't forgotten  
 Not a single thing  
 
-I am Wing.  
-I am Wing.  
+I am wings.  
+I am wings.  
 
 Codename NO5  
 Joining the mission  

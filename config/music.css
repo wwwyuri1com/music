@@ -2277,3 +2277,9 @@ position: absolute;
 .track-folder-items[hidden] {
   display: none;
 }
+
+/* Single Group mode switch; independent of favorites and playback controls. */
+.playlist-head-actions{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.playlist-group-toggle{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:25px;padding:6px 11px;border:1px solid rgba(255,255,255,.24);border-radius:12px;background:rgba(255,255,255,.045);color:#fff;font:inherit;font-size:11px;white-space:nowrap;cursor:pointer;transition:background .16s,border-color .16s}
+.playlist-group-toggle:hover,.playlist-group-toggle:focus-visible{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.42)}
+.playlist-group-toggle svg{width:12px;height:12px;flex:none}
