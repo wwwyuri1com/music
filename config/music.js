@@ -94,6 +94,7 @@
   let officialMembers = {};
   let officialId = ''; // Official playing source, NEVER a personal FAV slot
   let lastOfficialId = ''; // Independent of FAV's lastPlaybackList
+  let lastPlaybackSource = 'personal'; // Remembers which kind of playlist preceded ALL Track
   let groupMode = (()=>{try{const saved=localStorage.getItem(GROUP_MODE_KEY);return ['story','oc','off'].includes(saved)?saved:'story'}catch(_){return 'story'}})();
 
   const LIST_DEFS = [
@@ -223,6 +224,12 @@
     trackListView = validListId(restoredPlayerState.trackListView) || playbackList || lastPlaybackList || 1;
     if (typeof restoredPlayerState.officialId === 'string') officialId = restoredPlayerState.officialId;
     if (typeof restoredPlayerState.lastOfficialId === 'string') lastOfficialId = restoredPlayerState.lastOfficialId;
+    // Old snapshots have no source marker: preserve their original personal FAV behavior.
+    if (restoredPlayerState.lastPlaybackSource === 'official' || restoredPlayerState.lastPlaybackSource === 'personal') {
+      lastPlaybackSource = restoredPlayerState.lastPlaybackSource;
+    } else if (officialId) {
+      lastPlaybackSource = 'official';
+    }
     if (typeof restoredPlayerState.contentFilter === 'string' && restoredPlayerState.contentFilter) {
       contentFilter = restoredPlayerState.contentFilter;
     }
@@ -275,7 +282,7 @@
   function activateOfficial(id){
     if(!officialDef(id))return false;
     const wasPlaying=!els.audio.paused&&!els.audio.ended;
-    officialId=id;lastOfficialId=id;
+    officialId=id;lastOfficialId=id;lastPlaybackSource='official';
     if(contentFilter==='FAV_ONLY')contentFilter='ALL';
     // Personal FAV bank is remembered; not overwritten by an official choice.
     playbackList=0;
@@ -296,6 +303,7 @@
       lastPlaybackList,
       officialId,
       lastOfficialId,
+      lastPlaybackSource,
       trackListView,
       contentFilter,
       repeatOne,
@@ -329,7 +337,9 @@
     const def = listDef(playbackList > 0 ? playbackList : lastPlaybackList) || listDef(1);
     if (playbackList > 0) lastPlaybackList = def.id;
 
-    const official=officialDef();
+    // ALL Track retains the icon of the last playlist source, without entering that playlist.
+    const activeOfficial=officialDef();
+    const official=activeOfficial || (!favOn && lastPlaybackSource==='official' ? officialDef(lastOfficialId) : null);
     els.playbackModeMark.innerHTML = official ? `<span class="playback-mode-list official-icon" style="color:${/^#[0-9a-fA-F]{6}$/.test(official.color||'')?official.color:'#ffffff'}"><span class="playback-mode-icon">${officialIcon(official)}</span></span>` : `<span class="playback-mode-list"><sup>${def.sup}</sup><span class="playback-mode-icon">${def.icon}</span></span>`;
     els.playbackMode.dataset.list = String(def.id);
     els.playbackMode.classList.toggle('official-active',Boolean(official));
@@ -341,7 +351,10 @@
     els.playbackMode.setAttribute('aria-label', favOn ? `FAV mode on: custom list ${def.id}. Choose playback list` : `Choose FAV playlist. Last used custom list ${def.id}`);
     els.playbackMode.title = favOn ? `FAV mode: custom list ${def.id} — choose playlist` : `FAV playlists — last used custom list ${def.id}`;
     renderPlaybackListPicker();
-    if(official){els.playbackMode.setAttribute('aria-label',`Y1 Official: ${official.name}. Choose playback list`);els.playbackMode.title=official.name;}
+    if(official){
+      els.playbackMode.setAttribute('aria-label',favOn?`Y1 Official: ${official.name}. Choose playback list`:`ALL Track. Last Y1 Official: ${official.name}. Choose playback list`);
+      els.playbackMode.title=favOn?official.name:`ALL Track — last Y1 Official: ${official.name}`;
+    }
 
     if (els.playbackAll) {
       els.playbackAll.classList.toggle('active', !favOn);
@@ -583,6 +596,7 @@
     lastPlaybackList = def.id;
     if (syncPlayback) {
       officialId='';
+      lastPlaybackSource='personal';
       playbackList = def.id;
       renderPlaybackMode();
       renderPlaybackListPicker();
@@ -594,7 +608,8 @@
   }
 
   function switchToAllTrack({ notify = false } = {}) {
-    if (playbackList) lastPlaybackList = playbackList;
+    if (officialId) lastPlaybackSource='official';
+    else if (playbackList) { lastPlaybackList=playbackList; lastPlaybackSource='personal'; }
     officialId='';
     playbackList = 0;
     if(tracks.length){buildContentFilters();buildListTabs();renderPlaylist();}
@@ -612,6 +627,7 @@
     if (!def) return false;
     const wasPlaying = !els.audio.paused && !els.audio.ended;
     lastPlaybackList = def.id;
+    lastPlaybackSource='personal';
     officialId='';
     playbackList = def.id;
     trackListView = def.id;
@@ -1359,6 +1375,7 @@
         // Do not silently fall back to ALL merely because the row itself is not yet
         // saved in that list; the list tab is the user's explicit destination.
         lastPlaybackList = sourceList;
+        lastPlaybackSource='personal';
         playbackList = sourceList;
         renderPlaybackMode();
         renderPlaybackListPicker();
@@ -1720,7 +1737,11 @@
   });
   els.playbackMode?.addEventListener('click', e => {
     e.stopPropagation();
-    if (!playbackList&&!officialId) activateFavList(lastPlaybackList);
+    if (!playbackList&&!officialId) {
+      // ALL remembers the last *source*, not always FAV 1–6.
+      if (lastPlaybackSource==='official' && officialDef(lastOfficialId)) activateOfficial(lastOfficialId);
+      else activateFavList(lastPlaybackList);
+    }
     togglePlaybackListPicker();
   });
 
@@ -1732,12 +1753,34 @@
   els.customListPicker?.addEventListener('click', e => e.stopPropagation());
   els.playbackListPicker?.addEventListener('click', e => e.stopPropagation());
   document.addEventListener('click', e => {
+    const tabs=$('.playlist-filters');
+    if(tabs?.classList.contains('official-quick-open')){
+      const picker=tabs.querySelector('.official-quick-picker');
+      const indicator=tabs.querySelector('.official-tab-indicator');
+      // Group, type filters and folder expansion only change the Tracks view.
+      // They are not navigation outside the temporary Y1 official playlist picker.
+      const viewControl=e.target?.closest?.('#playlist-group-toggle, .content-filter-tabs .content-filter, .track-folder-toggle');
+      if(!indicator?.contains(e.target) && !picker?.contains(e.target) && !viewControl){
+        picker?.remove();
+        tabs.classList.remove('official-quick-open');
+        indicator?.setAttribute('aria-expanded','false');
+      }
+    }
     if (els.customListPicker && !els.customListPicker.hidden) {
       if (!els.currentFavorite?.contains(e.target) && !els.customListPicker.contains(e.target)) closeListPicker();
     }
     if (els.playbackListPicker && !els.playbackListPicker.hidden) {
       if (!els.playbackMode?.contains(e.target) && !els.playbackListPicker.contains(e.target)) closePlaybackListPicker();
     }
+  });
+
+  document.addEventListener('keydown', e=>{
+    if(e.key!=='Escape')return;
+    const tabs=$('.playlist-filters');
+    if(!tabs?.classList.contains('official-quick-open'))return;
+    tabs.querySelector('.official-quick-picker')?.remove();
+    tabs.classList.remove('official-quick-open');
+    tabs.querySelector('.official-tab-indicator')?.setAttribute('aria-expanded','false');
   });
 
   els.playlistBtn.addEventListener('click', () => {
@@ -1767,6 +1810,9 @@
   function buildListTabs() {
     const container = $('.playlist-filters');
     if (!container) return;
+    // Rebuilding tabs (for example after a playlist switch) closes the floating
+    // official shortcut without changing the personal FAV controls underneath.
+    container.classList.remove('official-quick-open');
     container.replaceChildren();
 
     // Only the six custom lists belong here. The old TRACK tab was redundant and
@@ -1783,11 +1829,63 @@
     indicator.setAttribute('aria-label',`Switch to Y1 official playlist: ${official?.name||'unavailable'}`);
     indicator.setAttribute('aria-pressed',String(Boolean(officialId)));
     indicator.disabled=!official;
-    indicator.addEventListener('click',()=>{
-      // Recall the last official playlist; only the left picker can select a
-      // *different* official playlist. Keep personal FAV memory separate.
-      const id=officialDef(lastOfficialId)?.id || officialLists[0]?.id;
-      if(id && !officialId)activateOfficial(id);
+    indicator.setAttribute('aria-expanded','false');
+    indicator.setAttribute('aria-haspopup','true');
+    indicator.addEventListener('click',e=>{
+      e?.stopPropagation?.();
+      if (!officialId) {
+        // Existing contract: from personal FAV, recall the last official list.
+        const id=officialDef(lastOfficialId)?.id || officialLists[0]?.id;
+        if(id)activateOfficial(id);
+        return;
+      }
+      // In official mode, the same tab reveals a temporary horizontal picker.
+      // It overlays personal FAV circles; it never replaces or mutates them.
+      const openPicker=container.querySelector?.('.official-quick-picker');
+      if(openPicker){
+        openPicker.remove?.();
+        container.classList.remove('official-quick-open');
+        indicator.setAttribute('aria-expanded','false');
+        return;
+      }
+      const picker=document.createElement('div');
+      picker.className='official-quick-picker';
+      picker.setAttribute('role','group');
+      picker.setAttribute('aria-label','Choose Y1 official playlist');
+      officialLists.forEach(def=>{
+        const btn=document.createElement('button');
+        btn.type='button';
+        btn.className='official-quick-pick'+(def.id===officialId?' active':'');
+        btn.dataset.officialId=def.id;
+        btn.innerHTML=officialIcon(def);
+        btn.style.color=/^#[0-9a-fA-F]{6}$/.test(def.color||'')?def.color:'#ffffff';
+        btn.title=def.name;
+        btn.setAttribute('aria-label',`Play ${def.name}`);
+        btn.setAttribute('aria-pressed',String(def.id===officialId));
+        btn.addEventListener('click',event=>{
+          event?.stopPropagation?.();
+          // Switching a Y1 playlist rebuilds the Tracks tabs. Preserve this
+          // temporary picker (and its scroll position) instead of closing it.
+          const pickerScroll=picker.scrollTop;
+          if(def.id!==officialId && !activateOfficial(def.id))return;
+          const currentIndicator=container.querySelector('.official-tab-indicator');
+          if(!currentIndicator)return;
+          container.appendChild(picker);
+          container.classList.add('official-quick-open');
+          currentIndicator.setAttribute('aria-expanded','true');
+          [...picker.children].forEach(item=>{
+            const active=item.dataset.officialId===officialId;
+            item.classList.toggle('active',active);
+            item.setAttribute('aria-pressed',String(active));
+          });
+          picker.scrollTop=pickerScroll;
+        });
+        picker.appendChild(btn);
+      });
+      container.appendChild(picker);
+      container.classList.add('official-quick-open');
+      indicator.setAttribute('aria-expanded','true');
+      applyOfficialIcons();
     });
     container.appendChild(indicator);
     const caption=document.createElement('span');caption.className='official-tabs-caption';caption.textContent='Y1★ | Your Editable FAV Lists';container.appendChild(caption);
@@ -1899,9 +1997,10 @@
 
       if(officialId&&!officialDef(officialId))officialId='';
       if(lastOfficialId&&!officialDef(lastOfficialId))lastOfficialId='';
+      if(lastPlaybackSource==='official' && !officialDef(lastOfficialId))lastPlaybackSource='personal';
       // Do not restore a dead official selection that has no published tracks.
       if(officialId&&!officialIndices().length)officialId='';
-      if(officialId){playbackList=0;contentFilter='ALL';}
+      if(officialId){playbackList=0;contentFilter='ALL';lastPlaybackSource='official';}
       // Keep existing 6 favorite banks after machine-ID normalization.
       let migratedLists = false;
       for (const set of customLists.values()) {
