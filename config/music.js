@@ -27,6 +27,7 @@
     playbackMode: $('#playback-mode'),
     playbackModeMark: $('#playback-mode-mark'),
     playbackListPicker: $('#playback-list-picker'),
+    officialTitle: $('#brand-playlist-title'),
     currentFavorite: $('#current-favorite'),
     customListPicker: $('#custom-list-picker'),
     playerShell: $('.player-shell'),
@@ -89,7 +90,11 @@
   const GROUP_MODE_KEY = 'yuri1_music_group_mode_v1';
   let characterGroups = [];
   let typeGroups = [];
-  let groupMode = (()=>{try{return localStorage.getItem(GROUP_MODE_KEY)==='oc'?'oc':'story'}catch(_){return 'story'}})();
+  let officialLists = [];
+  let officialMembers = {};
+  let officialId = ''; // Official playing source, NEVER a personal FAV slot
+  let lastOfficialId = ''; // Independent of FAV's lastPlaybackList
+  let groupMode = (()=>{try{const saved=localStorage.getItem(GROUP_MODE_KEY);return ['story','oc','off'].includes(saved)?saved:'story'}catch(_){return 'story'}})();
 
   const LIST_DEFS = [
     {
@@ -216,6 +221,8 @@
     playbackList = validListId(restoredPlayerState.playbackList);
     lastPlaybackList = validListId(restoredPlayerState.lastPlaybackList) || playbackList || 1;
     trackListView = validListId(restoredPlayerState.trackListView) || playbackList || lastPlaybackList || 1;
+    if (typeof restoredPlayerState.officialId === 'string') officialId = restoredPlayerState.officialId;
+    if (typeof restoredPlayerState.lastOfficialId === 'string') lastOfficialId = restoredPlayerState.lastOfficialId;
     if (typeof restoredPlayerState.contentFilter === 'string' && restoredPlayerState.contentFilter) {
       contentFilter = restoredPlayerState.contentFilter;
     }
@@ -245,6 +252,39 @@
   }
 
 
+  function officialDef(id=officialId) { return officialLists.find(item=>item.id===id) || null; }
+  function officialIndices(id=officialId) {
+    if (!officialDef(id)) return [];
+    return tracks.map((t,i) => (officialMembers[t.asset_no]||[]).includes(id)?i:-1).filter(i=>i>=0);
+  }
+  function officialContains(track,id=officialId) { return Boolean(track && (officialMembers[track.asset_no]||[]).includes(id)); }
+  function officialIcon(def) {
+    const valid=def && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(def.icon||'');
+    return valid ? `<svg data-lucide="${escapeHtml(def.icon)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3v3M5 7l2 2M19 7l-2 2M4 13h16l-3 8H7z"/></svg>` : '<span class="official-fallback">Y1</span>';
+  }
+  function renderOfficialUi(){
+    if(els.officialTitle){els.officialTitle.hidden=!officialId;els.officialTitle.textContent=officialDef()?.name||'';}
+    if(els.playlist)els.playlist.classList.toggle('official-track-mode',Boolean(officialId));
+  }
+  function rebuildOfficialViews(){
+    if(officialId && contentFilter==='FAV_ONLY')contentFilter='ALL';
+    const allowed=availableTrackTypes();
+    if(officialId && contentFilter!=='ALL' && !allowed.some(v=>v.toLowerCase()===contentFilter.toLowerCase()))contentFilter='ALL';
+    renderPlaybackMode();buildContentFilters();buildListTabs();renderPlaylist();persistPlayerState();
+  }
+  function activateOfficial(id){
+    if(!officialDef(id))return false;
+    const wasPlaying=!els.audio.paused&&!els.audio.ended;
+    officialId=id;lastOfficialId=id;
+    if(contentFilter==='FAV_ONLY')contentFilter='ALL';
+    // Personal FAV bank is remembered; not overwritten by an official choice.
+    playbackList=0;
+    rebuildOfficialViews();
+    const indices=officialIndices(id);
+    if(indices.length && !officialContains(tracks[currentIndex],id))setTrack(indices[0],{autoplay:wasPlaying,updateHistory:true});
+    return true;
+  }
+
   function playerStateSnapshot(positionOverride = null) {
     const track = tracks[currentIndex] || null;
     const rawPosition = positionOverride !== null ? Number(positionOverride) : Number(els.audio?.currentTime || 0);
@@ -254,6 +294,8 @@
       position: Number.isFinite(rawPosition) && rawPosition >= 0 ? rawPosition : 0,
       playbackList,
       lastPlaybackList,
+      officialId,
+      lastOfficialId,
       trackListView,
       contentFilter,
       repeatOne,
@@ -283,17 +325,23 @@
 
   function renderPlaybackMode() {
     if (!els.playbackMode || !els.playbackModeMark) return;
-    const favOn = playbackList > 0;
-    const def = listDef(favOn ? playbackList : lastPlaybackList) || listDef(1);
-    if (favOn) lastPlaybackList = def.id;
+    const favOn = playbackList > 0 || Boolean(officialId);
+    const def = listDef(playbackList > 0 ? playbackList : lastPlaybackList) || listDef(1);
+    if (playbackList > 0) lastPlaybackList = def.id;
 
-    els.playbackModeMark.innerHTML = `<span class="playback-mode-list"><sup>${def.sup}</sup><span class="playback-mode-icon">${def.icon}</span></span>`;
+    const official=officialDef();
+    els.playbackModeMark.innerHTML = official ? `<span class="playback-mode-list official-icon" style="color:${/^#[0-9a-fA-F]{6}$/.test(official.color||'')?official.color:'#ffffff'}"><span class="playback-mode-icon">${officialIcon(official)}</span></span>` : `<span class="playback-mode-list"><sup>${def.sup}</sup><span class="playback-mode-icon">${def.icon}</span></span>`;
     els.playbackMode.dataset.list = String(def.id);
+    els.playbackMode.classList.toggle('official-active',Boolean(official));
+    if(official)els.playbackMode.title=official.name;
+    renderOfficialUi();
+    if(official)applyOfficialIcons();
     els.playbackMode.classList.toggle('active', favOn);
     els.playbackMode.setAttribute('aria-pressed', String(favOn));
     els.playbackMode.setAttribute('aria-label', favOn ? `FAV mode on: custom list ${def.id}. Choose playback list` : `Choose FAV playlist. Last used custom list ${def.id}`);
     els.playbackMode.title = favOn ? `FAV mode: custom list ${def.id} — choose playlist` : `FAV playlists — last used custom list ${def.id}`;
     renderPlaybackListPicker();
+    if(official){els.playbackMode.setAttribute('aria-label',`Y1 Official: ${official.name}. Choose playback list`);els.playbackMode.title=official.name;}
 
     if (els.playbackAll) {
       els.playbackAll.classList.toggle('active', !favOn);
@@ -365,12 +413,23 @@
     }
   }
 
+  function applyOfficialIcons(){
+    // Reuse existing lazy Lucide loader, preserving usable fallback SVG offline.
+    const has=document.querySelector('[data-lucide]');
+    if(!has)return;
+    if(window.lucide?.createIcons){window.lucide.createIcons();return;}
+    if(!folderLucideLoad)folderLucideLoad=new Promise(resolve=>{
+      const script=document.createElement('script');script.src='https://unpkg.com/lucide@1.47.0';script.async=true;
+      script.onload=()=>resolve(!!window.lucide?.createIcons);script.onerror=()=>resolve(false);document.head.appendChild(script);
+    });
+    folderLucideLoad.then(ok=>{if(ok)window.lucide.createIcons();});
+  }
+
   function buildPlaybackListPicker() {
     if (!els.playbackListPicker) return;
-    els.playbackListPicker.innerHTML = LIST_DEFS.map(def => `
-      <button class="custom-list-pick playback-list-pick" type="button" data-list-id="${def.id}" aria-pressed="false" aria-label="Play custom list ${def.id}" title="${def.label}">
-        ${def.icon}
-      </button>`).join('');
+    const officialButtons=officialLists.map(def=>`<button class="custom-list-pick official-list-pick" type="button" data-official-id="${escapeHtml(def.id)}" aria-label="Play ${escapeHtml(def.name)}" title="${escapeHtml(def.name)}" style="--official-color:${/^#[0-9a-fA-F]{6}$/.test(def.color||'')?def.color:'#fff'}">${officialIcon(def)}</button>`).join('');
+    const personalButtons=LIST_DEFS.map(def => `<button class="custom-list-pick playback-list-pick" type="button" data-list-id="${def.id}" aria-pressed="false" aria-label="Play custom list ${def.id}" title="${def.label}">${def.icon}</button>`).join('');
+    els.playbackListPicker.innerHTML=`<div class="playback-picker-column official-column"><span class="playback-picker-label">Y1 ★</span>${officialButtons||'<span class="playback-picker-empty">—</span>'}</div><div class="playback-picker-column"><span class="playback-picker-label">FAV</span>${personalButtons}</div>`;
 
     els.playbackListPicker.querySelectorAll('.playback-list-pick').forEach(btn => {
       btn.addEventListener('click', e => {
@@ -381,11 +440,18 @@
         closePlaybackListPicker();
       });
     });
+    els.playbackListPicker.querySelectorAll('.official-list-pick').forEach(btn=>{
+      btn.addEventListener('click',e=>{e.stopPropagation();activateOfficial(btn.dataset.officialId);closePlaybackListPicker();});
+    });
     renderPlaybackListPicker();
+    applyOfficialIcons();
   }
 
   function renderPlaybackListPicker() {
     if (!els.playbackListPicker) return;
+    els.playbackListPicker.querySelectorAll('.official-list-pick').forEach(btn=>{
+      const active=officialId===btn.dataset.officialId;btn.classList.toggle('active',active);btn.setAttribute('aria-pressed',String(active));
+    });
     els.playbackListPicker.querySelectorAll('.playback-list-pick').forEach(btn => {
       const listId = Number(btn.dataset.listId);
       const active = playbackList === listId;
@@ -428,23 +494,32 @@
 
   function nextPlayableIndex(direction = 1, fromIndex = currentIndex) {
     if (!tracks.length) return -1;
+    if(typeof officialId!=='undefined' && officialId){
+      const indices=officialIndices();
+      if(indices.length<2){switchToAllTrack();return(fromIndex+(direction>=0?1:-1)+tracks.length)%tracks.length;}
+      if(direction>=0)return indices.find(i=>i>fromIndex)??indices[0];
+      return [...indices].reverse().find(i=>i<fromIndex)??indices[indices.length-1];
+    }
     fallbackFromEmptyPlaybackList();
     const step = direction >= 0 ? 1 : -1;
 
     // ALL Track keeps its normal circular navigation.
     if (!playbackList) return (fromIndex + step + tracks.length) % tracks.length;
 
-    // Inside a custom list, only move to a real previous/next item in that
-    // direction. Do not wrap from the last FAV item back to the first (or vice
-    // versa). Reaching a list boundary means the custom playback pool is done
-    // in that direction, so return to ALL Track and continue the requested
-    // previous/next action there.
-    for (let idx = fromIndex + step; idx >= 0 && idx < tracks.length; idx += step) {
-      if (isInList(tracks[idx], playbackList)) return idx;
+    const indices = listTrackIndices(playbackList);
+    // One-song FAV banks are not a useful manual navigation loop. Return to
+    // ALL Track on previous/next, keeping the original ALL Track direction.
+    if (indices.length < 2) {
+      switchToAllTrack();
+      return (fromIndex + step + tracks.length) % tracks.length;
     }
 
-    switchToAllTrack();
-    return (fromIndex + step + tracks.length) % tracks.length;
+    // Two or more favorites: manual previous/next (including swipe and media
+    // controls) wraps *within the selected bank*. If the current track is not
+    // in the bank, choose the closest favorite in the requested direction.
+    // Keep the existing track indices so setTrack updates the TRACKS selection.
+    if (step > 0) return indices.find(idx => idx > fromIndex) ?? indices[0];
+    return [...indices].reverse().find(idx => idx < fromIndex) ?? indices[indices.length - 1];
   }
 
   function moveTrack(direction, { autoplay = true, updateHistory = true } = {}) {
@@ -456,8 +531,9 @@
 
   function nextAutomaticIndex() {
     // Natural playback advances within the selected FAV bank, wrapping at its
-    // end. Manual previous/next and swipe deliberately retain their existing
-    // boundary behavior (switch to ALL Track).
+    // end. Manual navigation uses the same bank when it has at least two items,
+    // while a one-song bank falls back to ALL for manual previous/next.
+    if(typeof officialId!=='undefined' && officialId){const ids=officialIndices();if(!ids.length)return nextPlayableIndex(1);return ids.find(i=>i>currentIndex)??ids[0];}
     if (!playbackList) return nextPlayableIndex(1);
     const indices = listTrackIndices(playbackList);
     if (!indices.length) return nextPlayableIndex(1); // Keep empty-bank fallback.
@@ -493,7 +569,7 @@
   function refreshTrackListTabs() {
     if (!els.playlistFilters) return;
     els.playlistFilters.forEach(btn => {
-      const active = Number(btn.dataset.listView) === Number(trackListView);
+      const active = !officialId && Number(btn.dataset.listView) === Number(trackListView);
       btn.classList.toggle('active', active);
       btn.setAttribute('aria-selected', String(active));
       btn.setAttribute('aria-pressed', String(active));
@@ -506,6 +582,7 @@
     trackListView = def.id;
     lastPlaybackList = def.id;
     if (syncPlayback) {
+      officialId='';
       playbackList = def.id;
       renderPlaybackMode();
       renderPlaybackListPicker();
@@ -518,7 +595,9 @@
 
   function switchToAllTrack({ notify = false } = {}) {
     if (playbackList) lastPlaybackList = playbackList;
+    officialId='';
     playbackList = 0;
+    if(tracks.length){buildContentFilters();buildListTabs();renderPlaylist();}
     renderPlaybackMode();
     renderPlaybackListPicker();
     persistPlayerState();
@@ -533,8 +612,10 @@
     if (!def) return false;
     const wasPlaying = !els.audio.paused && !els.audio.ended;
     lastPlaybackList = def.id;
+    officialId='';
     playbackList = def.id;
     trackListView = def.id;
+    if(tracks.length){buildContentFilters();buildListTabs();renderPlaylist();}
     renderPlaybackMode();
     refreshTrackListTabs();
     persistPlayerState();
@@ -647,6 +728,11 @@
       typeof (group.icon || '') !== 'string' || typeof (group.color || '') !== 'string'
     )) throw Error('Invalid Music Type Groups');
     typeGroups=types;
+    const officialNode=doc.querySelector('#music-official-playlists');
+    const official=officialNode?JSON.parse(officialNode.textContent):{lists:[],members:{}};
+    if(!official || !Array.isArray(official.lists) || !official.members || typeof official.members!=='object' || Array.isArray(official.members) ||
+      official.lists.some(x=>!/^y1fav_\d{3}$/.test(x.id||'')||typeof x.name!=='string'||typeof x.icon!=='string'||typeof x.color!=='string'))throw Error('Invalid Y1 official playlists');
+    officialLists=official.lists;officialMembers=official.members;
     return [...doc.querySelectorAll('#music-catalog tbody tr')].map(row=>{
       const f=n=>row.querySelector('[data-field="'+n+'"]')?.textContent?.trim() || '';
       if(!/^\d{17}$/.test(f('asset_no')))throw Error('Invalid asset_no');
@@ -987,7 +1073,7 @@
 
   function availableTrackTypes() {
     const seen = new Map();
-    tracks.forEach(track => {
+    tracks.filter(track=>!officialId||officialContains(track)).forEach(track => {
       const value = trackType(track);
       const key = value.toLowerCase();
       if (!seen.has(key)) seen.set(key, value);
@@ -1007,6 +1093,7 @@
   }
 
   function matchesContentFilter(track) {
+    if(officialId&&!officialContains(track))return false;
     if (contentFilter === 'ALL') return true;
     if (contentFilter === 'FAV_ONLY') {
       return trackListView ? isInList(track, trackListView) : isInAnyList(track);
@@ -1020,8 +1107,8 @@
     container.replaceChildren();
 
     const defs = [
-      { value: 'ALL', label: 'ALL' },
-      { value: 'FAV_ONLY', label: '♥ FAV ONLY', fav: true },
+      { value: 'ALL', label: officialId?'ALL Pick':'ALL' },
+      ...(!officialId?[{ value: 'FAV_ONLY', label: '♥ FAV ONLY', fav: true }]:[]),
       ...availableTrackTypes().map(value => ({ value, label: value }))
     ];
 
@@ -1066,6 +1153,9 @@
   // Group mode only changes the list presentation. It does not change the
   // playback pool, track identity, FAV membership or original track order.
   function playlistSections(visible) {
+    // Off is a flat, single-copy view in the existing playback/filtered order.
+    // It does not participate in OC, Type or Story folder classification.
+    if (groupMode === 'off') return visible.map(entry => ({entry}));
     if (groupMode === 'oc') {
       const active = [];
       const classified = new Set();
@@ -1159,14 +1249,17 @@
 
   const GROUP_ICONS = {
     story: '<path d="M2 16V4a2 2 0 0 1 2-2h11"/><path d="M5 14H4a2 2 0 1 0 0 4h1"/><path d="M22 18H11a2 2 0 1 0 0 4h11V6H11a2 2 0 0 0-2 2v12"/>', // Lucide book-copy
+    off: '<path d="m2 2 20 20"/><path d="M22 16.343V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-.502-.059"/><path d="M3.177 3.177A2 2 0 0 0 2 5v13a2 2 0 0 0 2 2h16"/><path d="M9.6 3.9a2 2 0 0 0-.682-.639"/>', // Lucide folder-off
     oc: '<path d="M16.051 12.616a1 1 0 0 1 1.909.024l.737 1.452a1 1 0 0 0 .737.535l1.634.256a1 1 0 0 1 .588 1.806l-1.172 1.168a1 1 0 0 0-.282.866l.259 1.613a1 1 0 0 1-1.541 1.134l-1.465-.75a1 1 0 0 0-.912 0l-1.465.75a1 1 0 0 1-1.539-1.133l.258-1.613a1 1 0 0 0-.282-.866l-1.156-1.153a1 1 0 0 1 .572-1.822l1.633-.256a1 1 0 0 0 .737-.535z"/><path d="M8 15H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/>' // Lucide user-star
   };
   function renderGroupToggle() {
     if (!els.groupToggle) return;
-    const label = groupMode === 'oc' ? 'OC' : 'Story';
+    const label = groupMode === 'oc' ? 'OC' : groupMode === 'off' ? 'Off' : 'Story';
+    const nextMode = groupMode === 'oc' ? 'Story' : groupMode === 'story' ? 'Off' : 'OC';
     els.groupToggle.title = `Group: ${label}`;
-    els.groupToggle.setAttribute('aria-label', `Group: ${label}. Switch to ${groupMode === 'oc' ? 'Story' : 'OC'}`);
+    els.groupToggle.setAttribute('aria-label', `Group: ${label}. Switch to ${nextMode}`);
     els.groupToggle.setAttribute('aria-pressed', String(groupMode === 'oc'));
+    els.groupToggle.setAttribute('data-group-mode', groupMode);
     if (els.groupIcon) els.groupIcon.innerHTML = GROUP_ICONS[groupMode];
   }
 
@@ -1241,7 +1334,7 @@
   function renderTrackRow({ t, i }, container) {
       const row = document.createElement('div');
       const type = trackType(t);
-      const editingList = trackListView;
+      const editingList = (typeof officialId!=='undefined' && officialId) ? 0 : trackListView;
       const favored = editingList ? isInList(t, editingList) : false;
       const favoriteControl = editingList ? `
         <button class="track-favorite${favored ? ' active' : ''}" type="button" aria-pressed="${favored}" aria-label="${favored ? `Remove from custom list ${editingList}` : `Add to custom list ${editingList}`}" title="Custom list ${editingList}">${HEART_ICON}</button>` : '';
@@ -1260,6 +1353,7 @@
       });
 
       const selectTrack = () => {
+        if(typeof officialId!=='undefined' && officialId){setTrack(i,{autoplay:!els.audio.paused,updateHistory:true});els.playlist.classList.remove('open');return;}
         const sourceList = Number(trackListView) || lastPlaybackList || 1;
         // A track chosen from a custom-list context belongs to that playback context.
         // Do not silently fall back to ALL merely because the row itself is not yet
@@ -1626,7 +1720,7 @@
   });
   els.playbackMode?.addEventListener('click', e => {
     e.stopPropagation();
-    if (!playbackList) activateFavList(lastPlaybackList);
+    if (!playbackList&&!officialId) activateFavList(lastPlaybackList);
     togglePlaybackListPicker();
   });
 
@@ -1655,7 +1749,7 @@
     if (willOpen) {
       // TRACK LIST always opens on the same custom list shown in the lower-left
       // playback switch. If ALL is active, remember the most recently used list.
-      trackListView = playbackList || lastPlaybackList || 1;
+      if(!officialId)trackListView = playbackList || lastPlaybackList || 1;
       refreshTrackListTabs();
       renderPlaylist();
     }
@@ -1663,7 +1757,7 @@
   });
   els.closePlaylist.addEventListener('click', () => els.playlist.classList.remove('open'));
   els.groupToggle?.addEventListener('click', () => {
-    groupMode = groupMode === 'story' ? 'oc' : 'story';
+    groupMode = groupMode === 'oc' ? 'story' : groupMode === 'story' ? 'off' : 'oc';
     try { localStorage.setItem(GROUP_MODE_KEY, groupMode); } catch (_) {}
     renderGroupToggle();
     renderPlaylist();
@@ -1677,6 +1771,26 @@
 
     // Only the six custom lists belong here. The old TRACK tab was redundant and
     // caused a second, conflicting playback context.
+    // Official and personal playlist sources can be switched directly in Tracks.
+    // The official tab is a source switch, never an editor for official members.
+    const official=officialDef() || officialDef(lastOfficialId) || officialLists[0] || null;
+    const indicator=document.createElement('button');
+    indicator.type='button';
+    indicator.className='official-tab-indicator'+(officialId?'':' inactive');
+    indicator.innerHTML=official?officialIcon(official):'Y1';
+    if(official && /^#[0-9a-fA-F]{6}$/.test(official.color||''))indicator.style.color=official.color;
+    indicator.title=official?.name||'Y1 Official';
+    indicator.setAttribute('aria-label',`Switch to Y1 official playlist: ${official?.name||'unavailable'}`);
+    indicator.setAttribute('aria-pressed',String(Boolean(officialId)));
+    indicator.disabled=!official;
+    indicator.addEventListener('click',()=>{
+      // Recall the last official playlist; only the left picker can select a
+      // *different* official playlist. Keep personal FAV memory separate.
+      const id=officialDef(lastOfficialId)?.id || officialLists[0]?.id;
+      if(id && !officialId)activateOfficial(id);
+    });
+    container.appendChild(indicator);
+    const caption=document.createElement('span');caption.className='official-tabs-caption';caption.textContent='Y1★ | Your Editable FAV Lists';container.appendChild(caption);
     const values = LIST_DEFS.map(def => def.id);
     const buttons = values.map(value => {
       const btn = document.createElement('button');
@@ -1692,20 +1806,21 @@
       btn.addEventListener('click', () => {
         // Choosing a list in TRACK LIST is also choosing the active playback list.
         // Keep the lower-left FAV switch and TRACK LIST in one shared state.
-        setTrackListView(value, { syncPlayback: true });
+        if(officialId){
+          // Leaving official scope requires rebuilding type filters (ALL Pick
+          // -> ALL, all categories restored) as well as the playback source.
+          activateFavList(value);
+        }else{
+          setTrackListView(value, { syncPlayback: true });
+        }
       });
       container.appendChild(btn);
       return btn;
     });
 
-    const label = document.createElement('span');
-    label.className = 'fav-edit-label';
-    label.textContent = '｜Editable FAV Lists';
-    label.setAttribute('aria-hidden', 'true');
-    container.appendChild(label);
-
     els.playlistFilters = buttons;
     refreshTrackListTabs();
+    applyOfficialIcons();
   }
 
 
@@ -1777,8 +1892,16 @@
       const r = await fetch(catalogUrl, { cache: 'no-cache' });
       if (!r.ok) throw new Error(`Music Core HTTP ${r.status}`);
       tracks = coreCatalogTracks(await r.text());
+      // The first picker render runs before the catalog is loaded. Build it again
+      // now that Y1FAV definitions are available, including their click handlers.
+      buildPlaybackListPicker();
       if (!tracks.length) { setStatus('No published tracks yet.'); return; }
 
+      if(officialId&&!officialDef(officialId))officialId='';
+      if(lastOfficialId&&!officialDef(lastOfficialId))lastOfficialId='';
+      // Do not restore a dead official selection that has no published tracks.
+      if(officialId&&!officialIndices().length)officialId='';
+      if(officialId){playbackList=0;contentFilter='ALL';}
       // Keep existing 6 favorite banks after machine-ID normalization.
       let migratedLists = false;
       for (const set of customLists.values()) {
@@ -1822,7 +1945,8 @@
 
       const restoredKey = String(restoredPlayerState?.trackKey || '');
       const restoredIndex = restoredKey ? tracks.findIndex(t => trackKey(t) === restoredKey || legacyTrackKey(t) === restoredKey) : -1;
-      const requestedIndex = hasTrackQuery ? (idx >= 0 ? idx : 0) : (restoredIndex >= 0 ? restoredIndex : 0);
+      let requestedIndex = hasTrackQuery ? (idx >= 0 ? idx : 0) : (restoredIndex >= 0 ? restoredIndex : 0);
+      if(officialId && !officialIndices().includes(requestedIndex))requestedIndex=officialIndices()[0];
       const requestedKey = tracks[requestedIndex] ? trackKey(tracks[requestedIndex]) : '';
       const restorePosition = restoredKey && (restoredKey === requestedKey || restoredKey === legacyTrackKey(tracks[requestedIndex]))
         ? Math.max(0, Number(restoredPlayerState?.position) || 0)
