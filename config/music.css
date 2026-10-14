@@ -130,6 +130,17 @@ button {
   text-shadow: 0 2px 16px rgba(0,0,0,.35);
 }
 
+/* Small Music descriptor below the brand; no impact on header flex sizing. */
+.brand-subtitle {
+  position: absolute;
+  top: 50px;
+  left: 30px;
+  font-size: .5rem;
+  color: #ffffff90;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .icon-btn {
   width: 42px;
   height: 42px;
