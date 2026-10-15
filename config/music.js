@@ -74,6 +74,7 @@
   };
 
   let assetRenderSerial = 0;
+  let pendingAudioSourceSerial = 0;
 
   // Next-track audio cache: one bounded download, only after 30 seconds of
   // uninterrupted playback AND the current MP3 is fully buffered.
@@ -1163,15 +1164,22 @@
     els.story.textContent = t.STORY || '';
     els.theme.textContent = ocLabel(t);
     const serial = ++assetRenderSerial;
-    els.audio.pause();
+    // Keep the HTMLMediaElement connected to a valid source during track
+    // handoff. Explicitly emptying src + load() dismisses Chrome Android's
+    // media notification, even when the next (prefetched) track is ready.
+    // While a remote URL is resolving, keep the previous source PAUSED and
+    // refuse play commands until the selected song's source is installed.
+    pendingAudioSourceSerial = serial;
+    if (!fromAutomaticEnd) els.audio.pause();
     els.audio.preload = 'auto';
-    els.audio.removeAttribute('src');
-    els.audio.load();
-    if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
-    activePrefetchUrl = preparedUrl;
     if (preparedUrl) {
+      pendingAudioSourceSerial = 0;
       els.audio.src = preparedUrl;
       els.audio.load();
+      // Revoke only AFTER replacing the old source; the active media element
+      // must not briefly point at a revoked Blob URL during the handoff.
+      if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
+      activePrefetchUrl = preparedUrl;
       if (autoplay) els.audio.play().catch(() => {});
     }
 
@@ -1201,8 +1209,11 @@
       if (!preparedUrl) versionedAsset(audioRaw).then(audioUrl => {
         if (serial !== assetRenderSerial) return;
         const shouldAutoplay = autoplay;
+        pendingAudioSourceSerial = 0;
         els.audio.src = audioUrl;
         els.audio.load();
+        if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
+        activePrefetchUrl = null;
         if (shouldAutoplay) els.audio.play().catch(() => {});
       });
     });
@@ -1748,6 +1759,9 @@
         return;
       }
     }
+    // The previous MP3 deliberately remains attached while the selected
+    // track's network URL is resolving; never replay that stale MP3.
+    if (pendingAudioSourceSerial === assetRenderSerial) return;
     try { await els.audio.play(); } catch (_) {}
   }
 
@@ -1792,7 +1806,13 @@
 
   els.prev.addEventListener('click', () => moveTrack(-1, { autoplay: true }));
   els.next.addEventListener('click', () => moveTrack(1, { autoplay: true }));
-  els.audio.addEventListener('playing', () => resetNextPrefetchDelay());
+  els.audio.addEventListener('playing', () => {
+    // Chrome may drop its media notification at the natural end of the
+    // previous track; reassert playback state once the new audio is audible.
+    updateMediaSessionPlaybackState();
+    updateMediaSessionPosition(true);
+    resetNextPrefetchDelay();
+  });
   els.audio.addEventListener('waiting', () => clearNextPrefetch());
   els.audio.addEventListener('progress', () => tryStartNextPrefetch());
   els.audio.addEventListener('play', () => {
