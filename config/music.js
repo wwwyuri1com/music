@@ -75,6 +75,16 @@
 
   let assetRenderSerial = 0;
 
+  // Next-track audio cache: one bounded download, only after 30 seconds of
+  // uninterrupted playback AND the current MP3 is fully buffered.
+  const NEXT_PREFETCH_DELAY_MS = 30000;
+  const NEXT_PREFETCH_MAX_BYTES = 32 * 1024 * 1024;
+  let nextPrefetch = null;
+  let nextPrefetchTimer = null;
+  let nextPrefetchArmed = false;
+  let nextPrefetchGeneration = 0;
+  let activePrefetchUrl = null;
+
   let tracks = [];
   let currentIndex = 0;
   let immersiveMode = false;
@@ -286,6 +296,7 @@
     if(contentFilter==='FAV_ONLY')contentFilter='ALL';
     // Personal FAV bank is remembered; not overwritten by an official choice.
     playbackList=0;
+    resetNextPrefetchDelay();
     rebuildOfficialViews();
     const indices=officialIndices(id);
     if(indices.length && !officialContains(tracks[currentIndex],id))setTrack(indices[0],{autoplay:wasPlaying,updateHistory:true});
@@ -553,6 +564,128 @@
     return indices.find(index => index > currentIndex) ?? indices[0];
   }
 
+  // No requests, state writes or UI changes occur until the user has settled
+  // into actual playback. A pending/ready download belongs to exactly one
+  // current track and playlist context; it must never cross a context change.
+  function nextPrefetchContext() {
+    return `${currentIndex}|${repeatOne ? 1 : 0}|${officialId}|${playbackList}`;
+  }
+
+  function clearNextPrefetch() {
+    ++nextPrefetchGeneration;
+    if (nextPrefetchTimer !== null) window.clearTimeout(nextPrefetchTimer);
+    nextPrefetchTimer = null;
+    nextPrefetchArmed = false;
+    const old = nextPrefetch;
+    nextPrefetch = null;
+    if (old) {
+      old.controller.abort();
+      if (old.objectUrl) URL.revokeObjectURL(old.objectUrl);
+    }
+  }
+
+  function resetNextPrefetchDelay() {
+    clearNextPrefetch();
+    if (!tracks.length || repeatOne || els.audio.paused || els.audio.ended) return;
+    const generation = nextPrefetchGeneration;
+    const context = nextPrefetchContext();
+    nextPrefetchTimer = window.setTimeout(() => {
+      if (generation !== nextPrefetchGeneration || context !== nextPrefetchContext()) return;
+      nextPrefetchTimer = null;
+      nextPrefetchArmed = true;
+      tryStartNextPrefetch();
+    }, NEXT_PREFETCH_DELAY_MS);
+  }
+
+  function currentAudioFullyBuffered() {
+    const duration = Number(els.audio.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return false;
+    const buffered = els.audio.buffered;
+    if (!buffered) return false;
+    // A complete range from the beginning to the end; a seek-only tail range
+    // is NOT proof that the entire current song has finished downloading.
+    let covered = 0;
+    for (let i = 0; i < buffered.length; ++i) {
+      if (buffered.start(i) > covered + 0.5) break;
+      covered = Math.max(covered, buffered.end(i));
+      if (covered >= duration - 0.5) return true;
+    }
+    return false;
+  }
+
+  function tryStartNextPrefetch() {
+    if (!nextPrefetchArmed || nextPrefetch || repeatOne ||
+        els.audio.paused || els.audio.ended || !currentAudioFullyBuffered()) return;
+    // Computing the automatic successor is allowed only for nonempty banks:
+    // the existing nextAutomaticIndex() deliberately changes the playback
+    // context when an empty bank is encountered, which belongs to playback.
+    if (officialId && !officialIndices().length) return;
+    if (!officialId && playbackList && !listTrackIndices(playbackList).length) return;
+    const nextIndex = nextAutomaticIndex();
+    if (nextIndex < 0 || !tracks[nextIndex]) return;
+    const job = {
+      index: nextIndex,
+      key: trackKey(tracks[nextIndex]),
+      context: nextPrefetchContext(),
+      controller: new AbortController(),
+      objectUrl: null
+    };
+    const generation = nextPrefetchGeneration;
+    nextPrefetch = job;
+    (async () => {
+      const track = tracks[nextIndex];
+      const record = await loadCoreRecord(track).catch(() => null);
+      if (nextPrefetch !== job || generation !== nextPrefetchGeneration) return;
+      const audioRaw = record?.mp3
+        ? `aim/${encodeURIComponent(record.mp3)}` : audioPath(track);
+      const audioUrl = await versionedAsset(audioRaw);
+      if (nextPrefetch !== job || generation !== nextPrefetchGeneration) return;
+      // Preserve the original same-origin MP3 sourcing policy.
+      if (new URL(audioUrl, location.href).origin !== location.origin) return;
+      const response = await fetch(audioUrl, {
+        cache: 'no-cache', mode: 'same-origin', signal: job.controller.signal
+      });
+      if (!response.ok || response.status !== 200 || !response.body) throw Error('MP3 prefetch unavailable');
+      const reportedSize = Number(response.headers.get('content-length'));
+      if (reportedSize > NEXT_PREFETCH_MAX_BYTES) throw Error('MP3 exceeds prefetch limit');
+      const reader = response.body.getReader();
+      const parts = [];
+      let length = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (nextPrefetch !== job || generation !== nextPrefetchGeneration) {
+            await reader.cancel();
+            return;
+          }
+          length += value.byteLength;
+          if (length > NEXT_PREFETCH_MAX_BYTES) throw Error('MP3 exceeds prefetch limit');
+          parts.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      if (!length || nextPrefetch !== job || generation !== nextPrefetchGeneration) return;
+      job.objectUrl = URL.createObjectURL(new Blob(parts, { type: 'audio/mpeg' }));
+    })().catch(error => {
+      if (nextPrefetch === job && generation === nextPrefetchGeneration) {
+        // A failed prefetch must never interrupt the current song. Natural
+        // completion still uses the original online loading path.
+        console.warn('Next-track prefetch unavailable; normal playback retained', error);
+        clearNextPrefetch();
+      }
+    });
+  }
+
+  function takeNextPrefetch(index) {
+    const job = nextPrefetch;
+    if (!job?.objectUrl || job.index !== index ||
+        job.key !== trackKey(tracks[index]) || job.context !== nextPrefetchContext()) return null;
+    nextPrefetch = null; // Transfer ownership: clearNextPrefetch must not revoke it.
+    return job.objectUrl;
+  }
+
   function setListMembership(track, listId, shouldInclude) {
     if (!track) return;
     const set = listSet(listId);
@@ -561,6 +694,7 @@
     if (shouldInclude) set.add(key);
     else set.delete(key);
     persistCustomLists();
+    if (!officialId && playbackList === listId) resetNextPrefetchDelay();
 
     if (playbackList === listId) {
       const indices = listTrackIndices(listId);
@@ -598,6 +732,7 @@
       officialId='';
       lastPlaybackSource='personal';
       playbackList = def.id;
+      resetNextPrefetchDelay();
       renderPlaybackMode();
       renderPlaybackListPicker();
     }
@@ -612,6 +747,7 @@
     else if (playbackList) { lastPlaybackList=playbackList; lastPlaybackSource='personal'; }
     officialId='';
     playbackList = 0;
+    resetNextPrefetchDelay();
     if(tracks.length){buildContentFilters();buildListTabs();renderPlaylist();}
     renderPlaybackMode();
     renderPlaybackListPicker();
@@ -630,6 +766,7 @@
     lastPlaybackSource='personal';
     officialId='';
     playbackList = def.id;
+    resetNextPrefetchDelay();
     trackListView = def.id;
     if(tracks.length){buildContentFilters();buildListTabs();renderPlaylist();}
     renderPlaybackMode();
@@ -1006,8 +1143,13 @@
     if (els.lyricsContent) els.lyricsContent.scrollTop = 0;
   }
 
-  function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true, resumeTime = null } = {}) {
+  function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true, resumeTime = null, fromAutomaticEnd = false } = {}) {
     if (!tracks.length) return;
+    const newIndex = (index + tracks.length) % tracks.length;
+    // Only natural autoplay is allowed to consume the prepared successor. A
+    // manual track change always discards it, even if the index matches.
+    const preparedUrl = fromAutomaticEnd ? takeNextPrefetch(newIndex) : null;
+    clearNextPrefetch();
     currentIndex = (index + tracks.length) % tracks.length;
     const t = tracks[currentIndex];
     pendingResumeTime = Number.isFinite(Number(resumeTime)) && Number(resumeTime) > 0 ? Number(resumeTime) : null;
@@ -1025,6 +1167,13 @@
     els.audio.preload = 'auto';
     els.audio.removeAttribute('src');
     els.audio.load();
+    if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
+    activePrefetchUrl = preparedUrl;
+    if (preparedUrl) {
+      els.audio.src = preparedUrl;
+      els.audio.load();
+      if (autoplay) els.audio.play().catch(() => {});
+    }
 
     const mascotRaw = mascotPath(t);
 
@@ -1049,7 +1198,7 @@
         document.body.style.setProperty('--cover-image', `url("${coverUrl}")`);
       });
 
-      versionedAsset(audioRaw).then(audioUrl => {
+      if (!preparedUrl) versionedAsset(audioRaw).then(audioUrl => {
         if (serial !== assetRenderSerial) return;
         const shouldAutoplay = autoplay;
         els.audio.src = audioUrl;
@@ -1643,6 +1792,9 @@
 
   els.prev.addEventListener('click', () => moveTrack(-1, { autoplay: true }));
   els.next.addEventListener('click', () => moveTrack(1, { autoplay: true }));
+  els.audio.addEventListener('playing', () => resetNextPrefetchDelay());
+  els.audio.addEventListener('waiting', () => clearNextPrefetch());
+  els.audio.addEventListener('progress', () => tryStartNextPrefetch());
   els.audio.addEventListener('play', () => {
     els.app.classList.add('playing');
     updateMediaSessionPlaybackState();
@@ -1659,6 +1811,7 @@
     }
   });
   els.audio.addEventListener('pause', () => {
+    if (!els.audio.ended) clearNextPrefetch();
     els.app.classList.remove('playing');
     updateMediaSessionPlaybackState();
     updateMediaSessionPosition(true);
@@ -1697,6 +1850,7 @@
     }
   });
   els.audio.addEventListener('timeupdate', () => {
+    tryStartNextPrefetch();
     els.current.textContent = fmt(els.audio.currentTime);
     const p = els.audio.duration ? (els.audio.currentTime / els.audio.duration) * 100 : 0;
     els.seek.value = p;
@@ -1714,9 +1868,10 @@
       return;
     }
     const nextIndex = nextAutomaticIndex();
-    if (nextIndex >= 0) setTrack(nextIndex, { autoplay: true, updateHistory: true });
+    if (nextIndex >= 0) setTrack(nextIndex, { autoplay: true, updateHistory: true, fromAutomaticEnd: true });
   });
   els.seek.addEventListener('input', () => {
+    resetNextPrefetchDelay();
     const p = Number(els.seek.value);
     els.seek.style.setProperty('--p', `${p}%`);
     if (els.audio.duration) els.audio.currentTime = (p / 100) * els.audio.duration;
@@ -1726,6 +1881,7 @@
 
   els.repeatOne?.addEventListener('click', () => {
     repeatOne = !repeatOne;
+    resetNextPrefetchDelay();
     localStorage.setItem(REPEAT_ONE_KEY, repeatOne ? '1' : '0');
     renderRepeatOne();
     persistPlayerState();
@@ -1968,7 +2124,7 @@
     }
   });
 
-  window.addEventListener('pagehide', () => persistPlayerState());
+  window.addEventListener('pagehide', () => { clearNextPrefetch(); persistPlayerState(); });
   window.addEventListener('beforeunload', () => persistPlayerState());
   document.addEventListener('freeze', () => persistPlayerState());
   document.addEventListener('visibilitychange', () => {
