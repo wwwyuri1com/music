@@ -773,7 +773,9 @@ button {
 
   color: #fff;
 
-  padding: 9px;
+  /* Keep the card's outer width and scrollbar clearance unchanged.
+     Give the existing favorite column 5px more room at the right edge. */
+  padding: 9px 4px 9px 9px;
 
   display: grid;
 
@@ -1515,6 +1517,18 @@ position: absolute;
   justify-items: end;
   gap: 4px;
   margin: 0 !important;
+  min-width: 0;
+  max-width: 70px;
+  justify-self: end;
+}
+
+/* Only limit the secondary credit column, never alter the stored OC text.
+   Wrap at regular spaces; split unbroken names only if they cannot fit. */
+.track-item .track-side .theme {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .track-item .track-type {
@@ -1926,6 +1940,12 @@ position: absolute;
 
 .track-copy-row {
   min-width: 0;
+}
+
+/* Keep rare unbroken titles inside their own column. */
+.track-item .track-copy-row b,
+.track-item .track-copy-row > span {
+  overflow-wrap: anywhere;
 }
 
 .track-favorite {
