@@ -2387,3 +2387,50 @@ position: absolute;
 .official-quick-pick:hover,.official-quick-pick:focus-visible{background:rgba(255,255,255,.08)}
 .official-quick-pick.active{background:rgba(250,102,153,.13);box-shadow:inset 0 0 0 1px currentColor}
 
+
+/* ACE-Step 1.5 technology acknowledgment; scrolls below the last visible Track. */
+.playlist-tech-credit {
+  margin: 0;
+  padding: 7px 0 0;
+  color: #ffffff90;
+  font-size: 7px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: center;
+  white-space: nowrap;
+}
+.playlist-tech-credit button {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  text-underline-offset: 1px;
+  cursor: pointer;
+}
+.playlist-tech-credit button:hover,
+.playlist-tech-credit button:focus,
+.playlist-tech-credit button:active { text-decoration: underline; }
+.playlist-tech-credit button:focus-visible { outline: 1px solid #fa6699; outline-offset: 2px; }
+.lyrics-panel.tech-acknowledgment-mode .music-tech-acknowledgment {
+  font-size: 12px;
+  color: rgba(255,255,255,.78);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.lyrics-panel.tech-acknowledgment-mode .music-tech-acknowledgment p { margin: 0 0 13px; }
+.lyrics-panel.tech-acknowledgment-mode .music-tech-acknowledgment small { font-size: inherit; }
+.lyrics-panel.tech-acknowledgment-mode .music-tech-acknowledgment pre {
+  margin: 12px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0,0,0,.22);
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lyrics-panel.tech-acknowledgment-mode .music-tech-acknowledgment a { color: #ff9abb; }

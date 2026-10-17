@@ -43,6 +43,9 @@
     closeLyrics: $('#close-lyrics'),
     lyricsContent: $('#lyrics-content'),
     lyricsTrackTitle: $('#lyrics-track-title'),
+    lyricsHeading: $('#lyrics-panel .lyrics-head strong'),
+    techCreditLink: $('#music-tech-credit-link'),
+    techCredit: $('.playlist-tech-credit'),
     status: $('#status'),
     metaDescription: $('#meta-description'),
     canonical: $('#canonical'),
@@ -90,6 +93,8 @@
   let currentIndex = 0;
   let immersiveMode = false;
   let lyricsLoadSerial = 0;
+  let techCreditLoadSerial = 0;
+  let lyricsPanelMode = 'lyrics';
   const playedTrackKeys = new Set();
 
   const REPEAT_ONE_KEY = 'yuri1_music_repeat_one';
@@ -1131,16 +1136,58 @@
 
   function openLyrics() {
     if (!els.lyricsPanel || !tracks.length) return;
+    ++techCreditLoadSerial; // Discard pending technology-page responses.
+    lyricsPanelMode = 'lyrics';
+    els.lyricsPanel.classList.remove('tech-acknowledgment-mode');
+    els.lyricsPanel.setAttribute('aria-label', 'Lyrics');
+    if (els.lyricsHeading) els.lyricsHeading.textContent = 'Lyrics · Base Script';
+    els.closeLyrics?.setAttribute('aria-label', 'Close lyrics');
     els.playlist?.classList.remove('open');
     els.lyricsPanel.classList.add('open');
     els.lyricsPanel.setAttribute('aria-hidden', 'false');
     loadLyrics(tracks[currentIndex]);
   }
 
+  async function openTechAcknowledgment() {
+    if (!els.lyricsPanel || !els.lyricsContent) return;
+    ++lyricsLoadSerial; // Cancel any in-flight lyrics fetch without touching audio.
+    const serial = ++techCreditLoadSerial;
+    lyricsPanelMode = 'acknowledgment';
+    els.playlist?.classList.remove('open');
+    els.lyricsPanel.classList.add('open', 'tech-acknowledgment-mode');
+    els.lyricsPanel.setAttribute('aria-hidden', 'false');
+    els.lyricsPanel.setAttribute('aria-label', 'AI Music Technology Acknowledgment');
+    if (els.lyricsHeading) els.lyricsHeading.textContent = 'AI Music Technology Acknowledgment';
+    els.closeLyrics?.setAttribute('aria-label', 'Close acknowledgment');
+    if (els.lyricsTrackTitle) els.lyricsTrackTitle.textContent = 'Special Thanks';
+    renderLyricsMessage('Loading acknowledgment…');
+    els.lyricsContent.scrollTop = 0;
+    try {
+      const response = await fetch(`${SITE_ROOT}get/index.html`, { cache: 'no-cache' });
+      if (!response.ok) throw new Error(`Acknowledgment HTTP ${response.status}`);
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const section = doc.querySelector('#music-tech-acknowledgment');
+      if (!section) throw new Error('Technology acknowledgment section missing');
+      if (serial !== techCreditLoadSerial || lyricsPanelMode !== 'acknowledgment') return;
+      els.lyricsContent.replaceChildren(document.importNode(section, true));
+      els.lyricsContent.scrollTop = 0;
+    } catch (error) {
+      if (serial !== techCreditLoadSerial || lyricsPanelMode !== 'acknowledgment') return;
+      console.warn(error);
+      renderLyricsMessage('Technology acknowledgment unavailable.');
+    }
+  }
+
   function closeLyrics() {
     if (!els.lyricsPanel) return;
-    els.lyricsPanel.classList.remove('open');
+    ++lyricsLoadSerial;
+    ++techCreditLoadSerial;
+    lyricsPanelMode = 'lyrics';
+    els.lyricsPanel.classList.remove('open', 'tech-acknowledgment-mode');
     els.lyricsPanel.setAttribute('aria-hidden', 'true');
+    els.lyricsPanel.setAttribute('aria-label', 'Lyrics');
+    if (els.lyricsHeading) els.lyricsHeading.textContent = 'Lyrics · Base Script';
+    els.closeLyrics?.setAttribute('aria-label', 'Close lyrics');
     if (els.lyricsContent) els.lyricsContent.scrollTop = 0;
   }
 
@@ -1242,7 +1289,7 @@
     if (updateSeo) applyTrackSeo(t);
     if (trackView) sendGaEvent('music_track_view', t);
     renderPlaylist();
-    if (lyricsPanelOpen()) loadLyrics(t);
+    if (lyricsPanelOpen() && lyricsPanelMode === 'lyrics') loadLyrics(t);
     persistPlayerState(pendingResumeTrackKey === trackKey(t) ? pendingResumeTime : 0);
 
   }
@@ -1504,6 +1551,9 @@
       folder.append(toggle, items);
       els.trackList.appendChild(folder);
     });
+    // Credit belongs after the rendered tracks, inside the scrolling list.
+    // Keep the original node so its click listener survives filter/group renders.
+    if (els.techCredit) els.trackList.appendChild(els.techCredit);
     applyFolderIcons();
   }
 
@@ -2116,6 +2166,7 @@
     if (!immersiveMode) toggleLyricsPanel();
   });
   els.closeLyrics?.addEventListener('click', closeLyrics);
+  els.techCreditLink?.addEventListener('click', openTechAcknowledgment);
   els.immersiveToggle?.addEventListener('click', e => {
     e.stopPropagation();
     setImmersiveMode(!immersiveMode);

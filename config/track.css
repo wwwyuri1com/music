@@ -47,3 +47,10 @@
 @media(max-width:430px){.collection-date{font-size:10px}}
 
 .unavailable{opacity:.4;cursor:not-allowed;pointer-events:none}footer{padding:24px 0;text-align:center}
+
+/* Track Collection's visible, human-readable technology acknowledgment. */
+.music-tech-acknowledgment { margin: 32px 0 0; padding-top: 10px; color: rgba(255,255,255,.56); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.music-tech-acknowledgment p { margin: 0 0 10px; }
+.music-tech-acknowledgment small { font-size: inherit; }
+.music-tech-acknowledgment pre { font-size: 10px; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; background: rgba(0,0,0,.14); border-radius: 7px; }
+.music-tech-acknowledgment a { color: inherit; text-decoration: underline; }
