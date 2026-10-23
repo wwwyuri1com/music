@@ -1747,7 +1747,7 @@
     // Only the MP4 attached to the selected cover qualifies. If absent,
     // there is no request and the static background remains visible.
     const animation = String(tracks[currentIndex]?.Animation || '');
-    const match = /^(\d{17}\.mp4)\?v=([a-f0-9]{16})$/.exec(animation);
+    const match = /^(https?:\/\/[a-z0-9.-]+(?::\d+)?\/ail\/\d{17}\.mp4\?v=[a-f0-9]{16})$/i.exec(animation);
     if (!match) return;
 
     const generation = immersiveVideoGeneration;
@@ -1755,7 +1755,7 @@
     video.muted = true;
     video.loop = true;
     video.playsInline = true;
-    video.src = `ail/${match[1]}?v=${match[2]}`;
+    video.src = match[1];
     try {
       Promise.resolve(video.play()).then(() => {
         if (generation === immersiveVideoGeneration && immersiveMode) {
