@@ -83,11 +83,14 @@
   // uninterrupted playback AND the current MP3 is fully buffered.
   const NEXT_PREFETCH_DELAY_MS = 30000;
   const NEXT_PREFETCH_MAX_BYTES = 32 * 1024 * 1024;
+  const AUTO_HANDOFF_TIMEOUT_MS = 20000;
+  const AUTO_HANDOFF_MAX_RETRIES = 2;
   let nextPrefetch = null;
   let nextPrefetchTimer = null;
   let nextPrefetchArmed = false;
   let nextPrefetchGeneration = 0;
   let activePrefetchUrl = null;
+  let automaticHandoff = null;
 
   let tracks = [];
   let currentIndex = 0;
@@ -1191,8 +1194,82 @@
     if (els.lyricsContent) els.lyricsContent.scrollTop = 0;
   }
 
+  function clearAutomaticHandoff() {
+    const job = automaticHandoff;
+    automaticHandoff = null;
+    if (job?.timer !== null && job?.timer !== undefined) window.clearTimeout(job.timer);
+  }
+
+  function automaticHandoffCurrent(job) {
+    return Boolean(job && automaticHandoff === job &&
+      job.serial === assetRenderSerial &&
+      trackKey(tracks[currentIndex]) === job.trackKey);
+  }
+
+  function scheduleAutomaticHandoffCheck(job) {
+    if (!automaticHandoffCurrent(job)) return;
+    if (job.timer !== null) window.clearTimeout(job.timer);
+    job.timer = window.setTimeout(() => {
+      job.timer = null;
+      if (!automaticHandoffCurrent(job)) return;
+      // Do not resume if the user or OS paused playback after a play event.
+      if (job.playSeen && els.audio.paused && !els.audio.ended) {
+        clearAutomaticHandoff();
+        return;
+      }
+      retryAutomaticHandoff(job, 'playback did not start');
+    }, AUTO_HANDOFF_TIMEOUT_MS);
+  }
+
+  function startAutomaticHandoff(recover) {
+    clearAutomaticHandoff();
+    const job = {
+      serial: assetRenderSerial,
+      trackKey: trackKey(tracks[currentIndex]),
+      recover, attempts: 0, playSeen: false, timer: null
+    };
+    automaticHandoff = job;
+    scheduleAutomaticHandoffCheck(job);
+    return job;
+  }
+
+  function retryAutomaticHandoff(job, reason) {
+    if (!automaticHandoffCurrent(job)) return;
+    if (reason !== 'media source error' && job.playSeen && els.audio.paused && !els.audio.ended) {
+      clearAutomaticHandoff();
+      return;
+    }
+    if (job.attempts >= AUTO_HANDOFF_MAX_RETRIES) {
+      console.warn('Music automatic handoff could not recover:', reason);
+      clearAutomaticHandoff();
+      setStatus('Music unavailable. Tap Play to retry.');
+      return;
+    }
+    job.attempts += 1;
+    job.playSeen = false;
+    console.warn('Music automatic handoff retry', job.attempts, reason);
+    try {
+      job.recover(job.attempts);
+    } catch (error) {
+      console.warn('Music automatic handoff recovery failed', error);
+    }
+    if (automaticHandoffCurrent(job)) scheduleAutomaticHandoffCheck(job);
+  }
+
+  function handleAutomaticPlayRejection(job, error) {
+    if (!automaticHandoffCurrent(job)) return;
+    console.warn('Music automatic play rejected', error);
+    if (error?.name === 'NotAllowedError') {
+      clearAutomaticHandoff();
+      setStatus('Playback blocked by browser. Tap Play.');
+    } else if (error?.name !== 'AbortError') {
+      retryAutomaticHandoff(job, error?.name || 'play rejected');
+    }
+  }
+
   function setTrack(index, { autoplay = false, updateHistory = true, updateSeo = true, trackView = true, resumeTime = null, fromAutomaticEnd = false } = {}) {
     if (!tracks.length) return;
+    clearAutomaticHandoff();
     const newIndex = (index + tracks.length) % tracks.length;
     // Only natural autoplay is allowed to consume the prepared successor. A
     // manual track change always discards it, even if the index matches.
@@ -1211,6 +1288,21 @@
     els.story.textContent = t.STORY || '';
     els.theme.textContent = ocLabel(t);
     const serial = ++assetRenderSerial;
+    let rawAudio = audioPath(t);
+    let resolvedAudioUrl = '';
+    let recovered = false;
+    const recovery = fromAutomaticEnd && autoplay ? startAutomaticHandoff(attempt => {
+      if (serial !== assetRenderSerial) return;
+      recovered = true; // Late HEAD/core results cannot replace this rescue.
+      const u = new URL(resolvedAudioUrl || rawAudio, location.href);
+      u.searchParams.set('music_retry', `${Date.now()}-${attempt}`);
+      pendingAudioSourceSerial = 0;
+      els.audio.src = `${u.pathname}${u.search}${u.hash}`;
+      els.audio.load();
+      if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
+      activePrefetchUrl = null;
+      els.audio.play().catch(error => handleAutomaticPlayRejection(recovery, error));
+    }) : null;
     // Keep the HTMLMediaElement connected to a valid source during track
     // handoff. Explicitly emptying src + load() dismisses Chrome Android's
     // media notification, even when the next (prefetched) track is ready.
@@ -1227,7 +1319,7 @@
       // must not briefly point at a revoked Blob URL during the handoff.
       if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
       activePrefetchUrl = preparedUrl;
-      if (autoplay) els.audio.play().catch(() => {});
+      if (autoplay) els.audio.play().catch(error => handleAutomaticPlayRejection(recovery, error));
     }
 
     const mascotRaw = mascotPath(t);
@@ -1243,6 +1335,7 @@
       const audioRaw = record?.mp3
         ? `aim/${encodeURIComponent(record.mp3)}`
         : audioPath(t);
+      rawAudio = audioRaw;
 
       updateMediaSessionMetadata(t, coverRaw);
 
@@ -1254,14 +1347,19 @@
       });
 
       if (!preparedUrl) versionedAsset(audioRaw).then(audioUrl => {
-        if (serial !== assetRenderSerial) return;
+        if (serial !== assetRenderSerial || recovered) return;
+        resolvedAudioUrl = audioUrl;
         const shouldAutoplay = autoplay;
         pendingAudioSourceSerial = 0;
         els.audio.src = audioUrl;
         els.audio.load();
         if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
         activePrefetchUrl = null;
-        if (shouldAutoplay) els.audio.play().catch(() => {});
+        if (shouldAutoplay) els.audio.play().catch(error => handleAutomaticPlayRejection(recovery, error));
+      }).catch(error => {
+        if (!recovered && recovery && automaticHandoffCurrent(recovery)) {
+          retryAutomaticHandoff(recovery, error?.message || 'audio URL unavailable');
+        }
       });
     });
 
@@ -1817,13 +1915,16 @@
 
   async function togglePlay() {
     if (els.audio.paused) await resumePlayback();
-    else els.audio.pause();
+    else {
+      clearAutomaticHandoff();
+      els.audio.pause();
+    }
   }
 
   function configureMediaSession() {
     if (!('mediaSession' in navigator)) return;
     setMediaAction('play', () => resumePlayback());
-    setMediaAction('pause', () => els.audio.pause());
+    setMediaAction('pause', () => { clearAutomaticHandoff(); els.audio.pause(); });
     setMediaAction('previoustrack', () => moveTrack(-1, { autoplay: true, updateHistory: true }));
     setMediaAction('nexttrack', () => moveTrack(1, { autoplay: true, updateHistory: true }));
     setMediaAction('seekbackward', details => {
@@ -1857,6 +1958,7 @@
   els.prev.addEventListener('click', () => moveTrack(-1, { autoplay: true }));
   els.next.addEventListener('click', () => moveTrack(1, { autoplay: true }));
   els.audio.addEventListener('playing', () => {
+    clearAutomaticHandoff();
     // Chrome may drop its media notification at the natural end of the
     // previous track; reassert playback state once the new audio is audible.
     updateMediaSessionPlaybackState();
@@ -1864,8 +1966,12 @@
     resetNextPrefetchDelay();
   });
   els.audio.addEventListener('waiting', () => clearNextPrefetch());
+  els.audio.addEventListener('error', () => {
+    if (automaticHandoff) retryAutomaticHandoff(automaticHandoff, 'media source error');
+  });
   els.audio.addEventListener('progress', () => tryStartNextPrefetch());
   els.audio.addEventListener('play', () => {
+    if (automaticHandoff) automaticHandoff.playSeen = true;
     els.app.classList.add('playing');
     updateMediaSessionPlaybackState();
     updateMediaSessionPosition(true);
@@ -1934,7 +2040,20 @@
     persistPlayerState(0);
     if (repeatOne) {
       els.audio.currentTime = 0;
-      els.audio.play().catch(() => {});
+      const attachedUrl = els.audio.currentSrc || els.audio.src || '';
+      // The current song may itself be a prepared Blob. A Blob URL is not a
+      // reusable network retry target, so recover through the real MP3.
+      const audioRaw = attachedUrl.startsWith('blob:') ? audioPath(t) : (attachedUrl || audioPath(t));
+      const recovery = startAutomaticHandoff(attempt => {
+        const u = new URL(audioRaw, location.href);
+        u.searchParams.set('music_retry', `${Date.now()}-${attempt}`);
+        els.audio.src = `${u.pathname}${u.search}${u.hash}`;
+        els.audio.load();
+        if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
+        activePrefetchUrl = null;
+        els.audio.play().catch(error => handleAutomaticPlayRejection(recovery, error));
+      });
+      els.audio.play().catch(error => handleAutomaticPlayRejection(recovery, error));
       return;
     }
     const nextIndex = nextAutomaticIndex();
