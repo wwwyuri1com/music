@@ -6,6 +6,7 @@
     app: $('.music-app'),
     immersiveToggle: $('#immersive-toggle'),
     cover: $('.cover-layer'),
+    immersiveVideo: $('#immersive-video'),
     stage: $('.stage'),
     hero: $('.hero'),
     discWrap: $('#lyrics-disc'),
@@ -95,6 +96,7 @@
   let tracks = [];
   let currentIndex = 0;
   let immersiveMode = false;
+  let immersiveVideoGeneration = 0;
   let lyricsLoadSerial = 0;
   let techCreditLoadSerial = 0;
   let lyricsPanelMode = 'lyrics';
@@ -898,7 +900,7 @@
     return [...doc.querySelectorAll('#music-catalog tbody tr')].map(row=>{
       const f=n=>row.querySelector('[data-field="'+n+'"]')?.textContent?.trim() || '';
       if(!/^\d{17}$/.test(f('asset_no')))throw Error('Invalid asset_no');
-      return {asset_no:f('asset_no'),ID:f('work_no'),Img:Number(f('asset_no').slice(-3)),Image:f('Image'),TITLE:f('TITLE'),STORY:f('STORY'),OC:f('OC'),Theme:f('Theme'),PlayerName:f('PlayerName'),Type:f('Type'),Link:f('Link'),YouTube:f('YouTube'),Legacy:f('Legacy'),StoryMark:f('StoryMark')};
+      return {asset_no:f('asset_no'),ID:f('work_no'),Img:Number(f('asset_no').slice(-3)),Image:f('Image'),Animation:f('Animation'),TITLE:f('TITLE'),STORY:f('STORY'),OC:f('OC'),Theme:f('Theme'),PlayerName:f('PlayerName'),Type:f('Type'),Link:f('Link'),YouTube:f('YouTube'),Legacy:f('Legacy'),StoryMark:f('StoryMark')};
     });
   }
   function trackType(track) {
@@ -1277,6 +1279,9 @@
     clearNextPrefetch();
     currentIndex = (index + tracks.length) % tracks.length;
     const t = tracks[currentIndex];
+    // A visual-only transition, independent of the MP3 and its prefetch.
+    if (typeof immersiveMode !== 'undefined' && immersiveMode &&
+        typeof renderImmersiveVideo === 'function') renderImmersiveVideo();
     pendingResumeTime = Number.isFinite(Number(resumeTime)) && Number(resumeTime) > 0 ? Number(resumeTime) : null;
     pendingResumeTrackKey = pendingResumeTime !== null ? trackKey(t) : '';
     updateMediaSessionMetadata(t);
@@ -1724,6 +1729,46 @@
     els.immersiveToggle.title = immersiveMode ? 'Exit immersive mode' : 'Immersive mode';
   }
 
+  function stopImmersiveVideo() {
+    ++immersiveVideoGeneration;
+    els.app?.classList.remove('immersive-video-ready');
+    const video = els.immersiveVideo;
+    if (!video || !video.hasAttribute('src')) return;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+
+  function renderImmersiveVideo() {
+    stopImmersiveVideo();
+    const video = els.immersiveVideo;
+    if (!video || !immersiveMode || !tracks.length) return;
+
+    // Only the MP4 attached to the selected cover qualifies. If absent,
+    // there is no request and the static background remains visible.
+    const animation = String(tracks[currentIndex]?.Animation || '');
+    const match = /^(\d{17}\.mp4)\?v=([a-f0-9]{16})$/.exec(animation);
+    if (!match) return;
+
+    const generation = immersiveVideoGeneration;
+    video.defaultMuted = true;
+    video.muted = true;
+    video.loop = true;
+    video.playsInline = true;
+    video.src = `ail/${match[1]}?v=${match[2]}`;
+    try {
+      Promise.resolve(video.play()).then(() => {
+        if (generation === immersiveVideoGeneration && immersiveMode) {
+          els.app?.classList.add('immersive-video-ready');
+        }
+      }).catch(() => {
+        if (generation === immersiveVideoGeneration) stopImmersiveVideo();
+      });
+    } catch (_) {
+      if (generation === immersiveVideoGeneration) stopImmersiveVideo();
+    }
+  }
+
   function setImmersiveMode(on) {
     immersiveMode = Boolean(on);
 
@@ -1736,6 +1781,7 @@
     }
 
     renderImmersiveMode();
+    renderImmersiveVideo();
   }
 
   // =======================================================
@@ -2289,6 +2335,9 @@
   els.immersiveToggle?.addEventListener('click', e => {
     e.stopPropagation();
     setImmersiveMode(!immersiveMode);
+  });
+  els.immersiveVideo?.addEventListener('error', () => {
+    if (immersiveMode) stopImmersiveVideo();
   });
 
   // Close Tracks/Lyrics only when the user taps the non-interactive background.
