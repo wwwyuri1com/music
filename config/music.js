@@ -914,6 +914,16 @@
     // OC is the display character name. Theme remains the music-player filename key.
     return String(track?.OC || track?.PlayerName || track?.Theme || '').trim();
   }
+  // Metadata/analytics only. The player's main title and playlist remain raw TITLE.
+  // Use only the existing public song credit; never infer a singer from Theme.
+  function musicIdentityTitle(title,credit) {
+    const song=String(title||'').trim()||'Untitled',artist=String(credit||'').trim();
+    if(!artist)return song;
+    const plain=artist.replace(/^cover\s+by\s+/i,'').trim();
+    if([` (${artist})`,`（${artist}）`,` (${plain})`,`（${plain}）`].some(s=>song.toLowerCase().endsWith(s.toLowerCase())))return song;
+    if(plain&&song.toLowerCase().replace(/[)）]\s*$/,'').trimEnd().endsWith('cover by '+plain.toLowerCase()))return song;
+    return `${song} (${artist})`;
+  }
   function mascotPath(track) { return 'config/player/'+encodeURIComponent(track.Theme || 'default')+'.png'; }
   function postLink(track) { return track.Link || ''; }
   function absoluteUrl(path) {
@@ -966,7 +976,7 @@
   function trackUrl(track) { const u = new URL('index.html', location.href); u.searchParams.set('id',track.asset_no); return u.href; }
   function trackKey(track) { return track.asset_no; }
   function trackDescription(track) {
-    const title = track.TITLE || 'Untitled';
+    const title = musicIdentityTitle(track.TITLE, track.OC);
     const story = track.STORY || 'YURI NO1';
     return `${title} — original YURI NO1 AI music inspired by ${story}, connecting Girls Love novels, characters, and sound.`;
   }
@@ -994,7 +1004,8 @@
     });
   }
   function applyTrackSeo(track) {
-    const title = `${track.TITLE || 'Untitled'} \\ ${TITLE_SUFFIX}`;
+    const identity = musicIdentityTitle(track.TITLE, track.OC);
+    const title = `${identity} \\ ${TITLE_SUFFIX}`;
     const description = trackDescription(track);
     const url = new URL('get/'+track.asset_no+'.html', SITE_ROOT).href;
     const image = absoluteUrl(coverPath(track));
@@ -1015,7 +1026,7 @@
     const schema = {
       '@context': 'https://schema.org',
       '@type': 'MusicRecording',
-      name: track.TITLE || 'Untitled',
+      name: identity,
       url,
       image,
       contentUrl: audio,
@@ -1036,7 +1047,7 @@
   function sendGaEvent(name, track, extra = {}) {
     if (typeof window.gtag !== 'function' || !track) return;
     window.gtag('event', name, {
-      music_title: track.TITLE || 'Untitled',
+      music_title: musicIdentityTitle(track.TITLE, track.OC),
       music_id: musicId(track),
       music_track: Number(track.Img),
       music_story: track.STORY || '',
