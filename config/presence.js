@@ -91,12 +91,18 @@
   const FRIEND_KEY = 'yuri1-presence-friend-v1';
   const stored = key => {try {return window.localStorage.getItem(key)} catch (_) {return null}};
   const remember = (key, value) => {try {window.localStorage.setItem(key,value)} catch (_) {}};
-  // Studio has two preview routes for each phase. Both sandbox and the later
-  // standby/real stages must read the same private, status-filtered Friend feed.
-  const isStudioPreview = typeof location !== 'undefined' && (
+  // Sandbox retains Studio's immediate private preview. Every other stage,
+  // including deployed music.yuri1.com, reads its own built public files.
+  const isStudioSandbox = typeof location !== 'undefined' && (
     /^\/sandbox-music(?:\/|$)/.test(location.pathname) ||
-    /^\/(?:source-preview|preview)\/(?:sandbox|standby|real)\/music(?:\/|$)/.test(location.pathname)
+    /^\/(?:source-preview|preview)\/sandbox\/music(?:\/|$)/.test(location.pathname)
   );
+  function publicMusicRoot() {
+    const pathname = location.pathname || '/';
+    return pathname.endsWith('/') ? pathname :
+      pathname.endsWith('/index.html') ? pathname.slice(0,-'index.html'.length) : pathname + '/';
+  }
+  const publicMediaUrl = (root, filename) => root + String(filename).replace(/^\/+/, '');
   let presenceEnabled = stored(ENABLED_KEY) === '1';
   let hasOpened = false;
   let friends = [], friendId = stored(FRIEND_KEY) || '', folderOpen = true;
@@ -287,16 +293,24 @@
   async function loadFriends(){
     if(loaded)return;
     if(loading)return loading;
-    if(!isStudioPreview||typeof fetch!=='function'){
-      warnings=['Friends are available only in Y1 Studio local Music previews. Please check the preview URL.'];
+    if(typeof fetch!=='function'){
+      warnings=['Friend feed could not be loaded in this browser.'];
       loaded=true;renderFriends();return;
     }
     loading=(async()=>{
       try{
-        const response=await fetch('/sandbox-music/w/presence-friends.txt',{cache:'no-store'});
-        if(!response.ok)throw Error('Sandbox Friend HTTP '+response.status);
+        const root=publicMusicRoot();
+        const feedUrl=isStudioSandbox ? '/sandbox-music/w/presence-friends.txt' : root+'w/presence-friends.txt';
+        const response=await fetch(feedUrl,{cache:'no-store'});
+        if(!response.ok)throw Error('Friend feed HTTP '+response.status);
         const data=await response.json();
-        friends=Array.isArray(data.friends)?data.friends:[];
+        const rows=Array.isArray(data.friends)?data.friends:[];
+        friends=isStudioSandbox ? rows : rows.map(friend=>({
+          ...friend,
+          image:publicMediaUrl(root,friend.image),
+          idle:publicMediaUrl(root,friend.idle),
+          moves:friend.moves.map(move=>({...move,url:publicMediaUrl(root,move.url)}))
+        }));
         warnings=Array.isArray(data.warnings)?data.warnings:[];
         if(!friends.some(friend=>friend.asset_no===friendId)){
           friendId=friends[0]?.asset_no||'';
