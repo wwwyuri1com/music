@@ -1,0 +1,156 @@
+/* Presence Mode — Music's optional experience panel.
+   Keep every selector scoped so the approved Music UI stays unchanged. */
+
+.presence-btn {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  right: 66px; /* 14px topbar inset + 42px Tracks button + 10px gap */
+}
+
+/* Reuse the existing Tracks popup's geometry, animation and close button. */
+.playlist.presence-menu {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.presence-menu-body {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: #fa6699 transparent;
+  scrollbar-width: thin;
+  padding: 0 13px 16px;
+}
+
+/* Reuse Music Tracks' folder/row components, but keep all Friend differences
+   scoped to this independent menu. A Friend is selected once, not favorited. */
+.presence-menu .track-folder {margin-top: 10px}
+.presence-menu .track-folder-toggle {width: 100%}
+.presence-menu .track-folder-items {gap: 8px}
+.presence-menu .track-item {
+  width: 100%;
+  min-height: 116px;
+  grid-template-columns: 68px minmax(0, 1fr) 28px;
+  gap: 12px;
+  padding: 7px 6px;
+}
+.presence-menu .track-item img {
+  width: 68px;
+  height: 105px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.presence-menu .track-item .track-copy-row > span {
+  white-space: pre-wrap;
+  line-height: 1.35;
+}
+.presence-menu .track-item .presence-select-mark {
+  display: grid;
+  place-items: center;
+  color: #fa6699;
+}
+.presence-menu .track-item .presence-select-mark svg {width: 19px;height:19px}
+.presence-menu .track-item[aria-pressed="true"] .presence-select-mark svg {fill: currentColor}
+.presence-menu .track-item[aria-pressed="false"] .presence-select-mark svg {fill: none}
+.presence-menu .presence-no-friends {font-size:12px;line-height:1.7;color:#eee;padding:25px 15px}
+.presence-menu .presence-feed-message {
+  margin: 12px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255,255,255,.73);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.presence-menu .presence-feed-message:empty {display:none}
+
+.presence-menu .playlist-head strong {
+  white-space: nowrap;
+}
+
+.presence-menu .presence-power-toggle {
+  color: #ffffff;
+  gap: 9px;
+  height: 25px;
+  padding: 6px 11px;
+}
+
+.presence-power-toggle .presence-power-icon,
+.presence-power-toggle .presence-power-off-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.presence-power-toggle[data-enabled="true"] .presence-power-icon {
+  color: #18ff35;
+}
+
+.presence-power-toggle[data-enabled="false"] .presence-power-off-icon {
+  color: #c74d5a;
+}
+
+.presence-power-toggle[data-enabled="true"] .presence-power-off-icon,
+.presence-power-toggle[data-enabled="false"] .presence-power-icon {
+  display: none;
+}
+
+/* A transparent, pale mist-glass surface while Presence is ON.
+   Both Pmenu and the original Tracks panel receive the same treatment. */
+.music-app.presence-mode .playlist {
+  background: rgb(13 73 100 / 58%);
+  border-color: rgba(255, 255, 255, .28);
+  backdrop-filter: blur(38px) saturate(105%) brightness(1.3);
+  -webkit-backdrop-filter: blur(38px) saturate(105%) brightness(1.3);
+}
+
+/* Presence replaces the entire cover with the Friend film. The original
+   cover-layer pseudo-elements contain the gray lower fade; hide the full
+   layer instead of reusing it, so no color veil touches the Friend video. */
+.music-app.presence-mode .cover-layer {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+.music-app.presence-mode .immersive-video {
+  opacity: 0 !important;
+  visibility: hidden;
+}
+.music-app.presence-mode .hero {display:none !important}
+.presence-film {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: #09090d;
+  pointer-events: none;
+}
+.music-app.presence-mode .presence-film {display:block}
+.presence-film video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  visibility: hidden;
+  pointer-events: none;
+}
+.presence-film video.is-active {visibility:visible}
+.presence-welcome {
+  position: absolute;
+  top: 67px;
+  left: 30px;
+  width: calc(100% - 60px);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 8px rgba(0,0,0,.7);
+  pointer-events: none;
+}
+.presence-welcome[hidden],.music-app.immersive-mode .presence-welcome {display:none !important}
+
+/* Existing immersive mode still hides ordinary Music controls. */
+.music-app.immersive-mode .presence-btn,
+.music-app.immersive-mode .presence-menu {
+  display: none !important;
+}

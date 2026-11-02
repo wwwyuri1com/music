@@ -1979,6 +1979,12 @@
     }
   }
 
+  // Presence's open background delegates to the existing Music playback
+  // state machine, including its handoff and media-session bookkeeping.
+  document.addEventListener('yuri1:presence-toggle-play', () => {
+    if (els.app?.classList.contains('presence-mode')) togglePlay();
+  });
+
   function configureMediaSession() {
     if (!('mediaSession' in navigator)) return;
     setMediaAction('play', () => resumePlayback());

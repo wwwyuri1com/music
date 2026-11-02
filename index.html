@@ -43,6 +43,7 @@
   </script>
 
   <link id="music-css" rel="stylesheet" href="config/music.css">
+  <link id="presence-css" rel="stylesheet" href="config/presence.css">
   <script>
   // YURI1 automatic asset versioning.
   // Revalidate metadata; unchanged files keep the same cache URL,
@@ -114,12 +115,20 @@
     const link = document.getElementById('music-css');
     if (link && link.href !== new URL(url, location.href).href) link.href = url;
   });
+  window.YURI1Cache.versioned('config/presence.css').then(url => {
+    const link = document.getElementById('presence-css');
+    if (link && link.href !== new URL(url, location.href).href) link.href = url;
+  });
   </script>
 </head>
 <body>
   <main class="music-app">
     <div class="cover-layer" aria-hidden="true"></div>
     <video id="immersive-video" class="immersive-video" muted loop playsinline preload="none" aria-hidden="true" tabindex="-1"></video>
+    <div class="presence-film" aria-hidden="true">
+      <video id="presence-video-a" muted playsinline preload="auto" tabindex="-1"></video>
+      <video id="presence-video-b" muted playsinline preload="auto" tabindex="-1"></video>
+    </div>
 
     <button id="immersive-toggle" class="immersive-toggle" type="button" aria-label="Enter immersive mode" aria-pressed="false" title="Immersive mode">
       <svg class="immersive-enter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -133,7 +142,15 @@
     <header class="topbar">
       <a class="brand" href="https://www.yuri1.com" target="_blank">© YURI NO1 ♫</a>
       <span class="brand-subtitle">AI Gᴇɴᴇʀᴀᴛᴇᴅ Mᴜꜱɪᴄ</span>
+      <span id="presence-welcome" class="presence-welcome" hidden></span>
       <span id="brand-playlist-title" class="brand-playlist-title" hidden></span>
+      <button id="presence-btn" class="icon-btn presence-btn" type="button" aria-label="Open Presence Mode menu" aria-controls="presence-menu" aria-expanded="false" title="Presence Mode">
+        <svg class="lucide lucide-sofa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v2"/>
+          <path d="M2 11a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2z"/>
+          <path d="M4 19v2M20 19v2"/>
+        </svg>
+      </button>
       <button id="playlist-btn" class="icon-btn" type="button" aria-label="Open track list">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h12M4 12h12M4 17h8"/><path d="M19 15v5m0-5 2-1v5"/></svg>
       </button>
@@ -162,6 +179,29 @@
       </div>
 
       <div class="player-shell">
+        <!-- Presence-only song information; the original Music hero is preserved. -->
+        <div id="presence-songbar" class="presence-songbar" aria-label="Current track">
+          <button id="presence-song-toggle" class="presence-song-toggle" type="button" aria-label="Play music" title="Play music">
+            <svg class="presence-song-playing-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"/>
+            </svg>
+            <svg class="presence-song-paused-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="10" y1="15" x2="10" y2="9"/>
+              <line x1="14" y1="15" x2="14" y2="9"/>
+            </svg>
+          </button>
+          <div class="presence-song-details">
+            <strong id="presence-song-title" class="presence-song-title">YURI1 Music</strong>
+            <a id="presence-song-link" class="presence-song-link" href="#" target="_blank" rel="noopener" aria-label="Open related story" aria-disabled="true" tabindex="-1">
+              <span id="presence-song-theme">—</span><span aria-hidden="true"> · </span><span id="presence-song-story">—</span>
+              <svg class="presence-song-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              </svg>
+            </a>
+          </div>
+        </div>
         <div class="timeline">
           <span id="current-time" class="time">0:00</span>
           <input id="seek" class="seek" type="range" min="0" max="100" step="0.05" value="0" aria-label="Seek">
@@ -240,6 +280,28 @@
       </div>
     </aside>
 
+    <aside id="presence-menu" class="playlist presence-menu" aria-label="Presence Mode menu" aria-hidden="true">
+      <div class="playlist-head">
+        <strong>Presence Mode</strong>
+        <div class="playlist-head-actions">
+          <button id="presence-power-toggle" class="playlist-group-toggle presence-power-toggle" type="button"
+                  aria-label="Presence Mode OFF. Switch to ON" aria-pressed="false" data-enabled="false" title="Presence Mode OFF">
+            <span id="presence-power-label">OFF</span>
+            <svg class="presence-power-icon lucide lucide-power" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><path d="M12 2v10"/>
+            </svg>
+            <svg class="presence-power-off-icon lucide lucide-power-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18.36 6.64a9 9 0 0 1-12.73 12.72"/><path d="M6.3 6.3a9 9 0 0 1 3.1-2.2"/><path d="M12 2v4"/><path d="m2 2 20 20"/>
+            </svg>
+          </button>
+          <button id="close-presence" class="icon-btn" type="button" aria-label="Close Presence Mode menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="presence-menu-body" id="presence-friend-list" aria-live="polite"></div>
+    </aside>
+
     <aside id="lyrics-panel" class="lyrics-panel" aria-label="Lyrics" aria-hidden="true">
       <div class="lyrics-head">
         <div>
@@ -269,6 +331,18 @@
     script.async = false;
     document.body.appendChild(script);
   })();
+  // Presence is an optional Music experience, not a second site or player.
+  (async () => {
+    if (document.readyState === 'loading') {
+      await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }));
+    }
+    const src = await window.YURI1Cache.versioned('config/presence.js');
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = false;
+    document.body.appendChild(script);
+  })();
   </script>
+  <script src="config/presence-roll.js" defer></script>
 </body>
 </html>
