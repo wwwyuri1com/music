@@ -109,6 +109,8 @@
   let loaded = false, loading = null, warnings = [], player = null, generation = 0;
 
   const currentFriend = () => friends.find(friend => friend.asset_no === friendId) || null;
+  const browserTheme = document.querySelector('meta[name="theme-color"]');
+  const defaultBrowserColor = browserTheme?.getAttribute('content');
   let themeStyle = null;
   const themeTargets = {menu: ':is(#presence-menu, #playlist)', song: '#presence-songbar', player: '.player-shell'};
 
@@ -126,8 +128,11 @@
       document.body.style.removeProperty('--presence-still');
     }
     const theme = friend?.theme;
-    if (theme?.accent && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(theme.accent)) {
-      document.body.style.setProperty('--accent', theme.accent);
+    const accent = theme?.accent;
+    const hasAccent = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(accent);
+    browserTheme?.setAttribute('content', hasAccent ? accent.slice(0, 7) : defaultBrowserColor);
+    if (hasAccent) {
+      document.body.style.setProperty('--accent', accent);
     } else if (document.body.style?.getPropertyValue?.('--accent')) {
       document.body.style.removeProperty('--accent');
     }
