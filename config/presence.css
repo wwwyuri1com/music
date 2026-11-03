@@ -240,3 +240,12 @@ body.has-presence-still::before {background-image: var(--presence-still)}
 .music-app.presence-mode,
 .music-app.presence-mode .player-shell {width: min(100vw, 450px);max-width: 450px}
 .music-app.presence-mode .immersive-toggle {left: calc(50% - min(50vw, 225px) + 18px)}
+
+.presence-menu .presence-media-status {
+  display:flex;flex-wrap:wrap;gap:.25em 1.25em;margin:0 6px 12px;
+  font-size:9px;line-height:1.5;color:rgba(255,255,255,.73)
+}
+.presence-media-status[hidden]{display:none !important}
+.presence-media-status span{white-space:nowrap}
+.presence-media-status [data-state="Loading"]{color:#ffd8aa}
+.presence-media-status [data-state="Failed"]{color:#db7d9d}

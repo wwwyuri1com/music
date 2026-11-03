@@ -177,9 +177,48 @@
     });
   }
 
+  let diagnostic = '';
+  let statusLine, animatedLabel, musicLabel;
+  function mediaState(media) {
+    if (media?.error) return 'Failed';
+    if (!media || media.readyState < 3 || media.seeking) return 'Loading';
+    // NETWORK_LOADING may continue after playback has already started.
+    if (media.networkState === 2 && !media.currentSrc?.startsWith('blob:')) {
+      const ranges = media.buffered;
+      if (!Number.isFinite(media.duration) || !ranges?.length ||
+          ranges.length !== 1 || ranges.start(0) > .1 || ranges.end(0) < media.duration - .1) return 'Loading';
+    }
+    return 'Loaded';
+  }
+  function showLabel(element, name, state) {
+    if (element.dataset.state === state) return;
+    element.dataset.state = state;
+    element.textContent = ({Loaded:'✔︎',Loading:'◷',Failed:'✘'})[state]+' '+name+' '+state;
+  }
+  function refreshStatus(){
+    if (!statusLine) return;
+    statusLine.hidden = !presenceEnabled;
+    if (!presenceEnabled) return;
+    let animation = loaded && !currentFriend() ? 'Failed' : 'Loading';
+    if (player) {
+      const active = mediaState(videos[player.active]);
+      const next = player.next && videos[player.next.index];
+      if (player.failed || active === 'Failed' || next?.error) animation = 'Failed';
+      else if (player.ready && active === 'Loaded' && (!next || (player.next.ready && mediaState(next)==='Loaded'))) animation = 'Loaded';
+    }
+    showLabel(animatedLabel,'Animated',animation);
+    showLabel(musicLabel,'Music',audio?.presenceSourceState || mediaState(audio));
+  }
+  const mediaEvents=['loadstart','emptied','loadeddata','canplay','canplaythrough','playing','waiting','stalled',
+    'progress','suspend','seeking','seeked','error','durationchange','yuri1:source-state'];
+  for (const media of [audio,...videos]) {
+    if (media) for (const event of mediaEvents) media.addEventListener(event,refreshStatus);
+  }
   function report(message) {
-    const note=list?.querySelector('.presence-feed-message');
-    if (note) note.textContent=message;
+    diagnostic=message;
+    const note=list?.querySelector('.presence-feed-detail');
+    if (note) note.textContent=[...warnings,diagnostic].filter(Boolean).join(' · ');
+    refreshStatus();
   }
 
   function chooseNext(p, previous) {
@@ -194,8 +233,8 @@
     const next=chooseNext(p,clip),index=1-p.active,video=videos[index];
     video.pause();video.classList.remove('is-active');video.src=next.url;video.load();
     const data={clip:next,index,ready:false};p.next=data;
-    data.promise=videoReady(video,p.abort.signal).then(()=>{if(player===p)data.ready=true});
-    data.promise.catch(error=>{if(player===p&&!p.abort.signal.aborted)report(error.message)});
+    data.promise=videoReady(video,p.abort.signal).then(()=>{if(player===p){data.ready=true;refreshStatus()}});
+    data.promise.catch(error=>{if(player===p&&!p.abort.signal.aborted){p.failed=true;report(error.message)}});
   }
 
   async function advance(p) {
@@ -215,7 +254,7 @@
       p.active=next.index;p.changing=false;wireClip(p,incoming,next.clip);
     } catch (error) {
       if (player!==p||p.abort.signal.aborted)return;
-      p.changing=false;report('Video transition failed: '+error.message);
+      p.changing=false;p.failed=true;report('Video transition failed: '+error.message);
       setTimeout(()=>{if(player===p)startFilm(p.friend)},1000);
     }
   }
@@ -245,12 +284,12 @@
     }
     try{
       await Promise.all(Array.from({length:Math.min(2,p.friend.moves.length)},worker));
-      if(player===p){p.ready=true;report('Presence Mode may use more network data.')}
-    }catch(error){if(player===p&&!p.abort.signal.aborted)report('Could not preload action videos: '+error.message+'. Staying idle.')}
+      if(player===p){p.ready=true;refreshStatus()}
+    }catch(error){if(player===p&&!p.abort.signal.aborted){p.failed=true;report('Could not preload action videos: '+error.message+'. Staying idle.')}}
   }
 
   async function startFilm(friend) {
-    stopFilm();
+    stopFilm();report('');
     if(!presenceEnabled||!friend||!videos.every(Boolean))return;
     const token=generation;
     const p={friend,active:0,round:0,eligible:{},ready:friend.moves.length===0,
@@ -266,7 +305,7 @@
       video.classList.add('is-active');
       wireClip(p,video,{type:'idle',url:friend.idle});
       if(friend.moves.length)preloadMoves(p);
-    }catch(error){if(player===p&&!p.abort.signal.aborted)report('Idle video could not play: '+error.message)}
+    }catch(error){if(player===p&&!p.abort.signal.aborted){p.failed=true;report('Idle video could not play: '+error.message)}}
   }
 
   function selectFriend(no){
@@ -319,7 +358,14 @@
       folder.append(toggle,items);list.appendChild(folder);
     }
     const status=document.createElement('p');status.className='presence-feed-message';status.setAttribute('role','status');
-    status.textContent=warnings.join(' · ');list.appendChild(status);
+    status.textContent='Presence Mode may use more network data.';list.appendChild(status);
+    statusLine=document.createElement('p');statusLine.className='presence-media-status';statusLine.setAttribute('role','status');
+    const caption=document.createElement('span');caption.textContent='Current status';
+    animatedLabel=document.createElement('span');musicLabel=document.createElement('span');
+    statusLine.append(caption,animatedLabel,musicLabel);list.appendChild(statusLine);
+    const detail=document.createElement('p');detail.className='presence-feed-message presence-feed-detail';
+    detail.textContent=[...warnings,diagnostic].filter(Boolean).join(' · ');list.appendChild(detail);
+    refreshStatus();
   }
 
   async function loadFriends(){
@@ -337,11 +383,11 @@
         if(!response.ok)throw Error('Friend feed HTTP '+response.status);
         const data=await response.json();
         const rows=Array.isArray(data.friends)?data.friends:[];
-        friends=isStudioSandbox ? rows : rows.map(friend=>({
-          ...friend,
-          image:publicMediaUrl(root,friend.image),
-          idle:publicMediaUrl(root,friend.idle),
-          moves:friend.moves.map(move=>({...move,url:publicMediaUrl(root,move.url)}))
+        const mediaPath = path => isStudioSandbox ? path : publicMediaUrl(root,path);
+        const videoPath = (path,version) => mediaPath(path)+(version?'?v='+encodeURIComponent(version):'');
+        friends=rows.map(friend=>({
+          ...friend,image:mediaPath(friend.image),idle:videoPath(friend.idle,friend.idle_version),
+          moves:friend.moves.map(move=>({...move,url:videoPath(move.url,move.version)}))
         }));
         warnings=Array.isArray(data.warnings)?data.warnings:[];
         if(!friends.some(friend=>friend.asset_no===friendId)){
@@ -368,6 +414,7 @@
     power.title = `Presence Mode ${label}`;
     if(persist)remember(ENABLED_KEY,presenceEnabled?'1':'0');
     updateWelcome();updateFriendTheme();
+    refreshStatus();
     if(!presenceEnabled)stopFilm();
     else if(!wasEnabled){if(loaded)startFilm(currentFriend());else loadFriends()}
   }

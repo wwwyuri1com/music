@@ -1314,6 +1314,7 @@
       const u = new URL(resolvedAudioUrl || rawAudio, location.href);
       u.searchParams.set('music_retry', `${Date.now()}-${attempt}`);
       pendingAudioSourceSerial = 0;
+      els.audio.presenceSourceState = null;
       els.audio.src = `${u.pathname}${u.search}${u.hash}`;
       els.audio.load();
       if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
@@ -1326,10 +1327,13 @@
     // While a remote URL is resolving, keep the previous source PAUSED and
     // refuse play commands until the selected song's source is installed.
     pendingAudioSourceSerial = serial;
+    els.audio.presenceSourceState = 'Loading';
+    els.audio.dispatchEvent?.(new Event('yuri1:source-state'));
     if (!fromAutomaticEnd) els.audio.pause();
     els.audio.preload = 'auto';
     if (preparedUrl) {
       pendingAudioSourceSerial = 0;
+      els.audio.presenceSourceState = null;
       els.audio.src = preparedUrl;
       els.audio.load();
       // Revoke only AFTER replacing the old source; the active media element
@@ -1368,12 +1372,17 @@
         resolvedAudioUrl = audioUrl;
         const shouldAutoplay = autoplay;
         pendingAudioSourceSerial = 0;
+        els.audio.presenceSourceState = null;
         els.audio.src = audioUrl;
         els.audio.load();
         if (activePrefetchUrl) URL.revokeObjectURL(activePrefetchUrl);
         activePrefetchUrl = null;
         if (shouldAutoplay) els.audio.play().catch(error => handleAutomaticPlayRejection(recovery, error));
       }).catch(error => {
+        if (serial === assetRenderSerial && !recovered) {
+          els.audio.presenceSourceState = 'Failed';
+          els.audio.dispatchEvent?.(new Event('yuri1:source-state'));
+        }
         if (!recovered && recovery && automaticHandoffCurrent(recovery)) {
           retryAutomaticHandoff(recovery, error?.message || 'audio URL unavailable');
         }
