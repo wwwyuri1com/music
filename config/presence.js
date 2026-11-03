@@ -126,6 +126,11 @@
       document.body.style.removeProperty('--presence-still');
     }
     const theme = friend?.theme;
+    if (theme?.accent && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(theme.accent)) {
+      document.body.style.setProperty('--accent', theme.accent);
+    } else if (document.body.style?.getPropertyValue?.('--accent')) {
+      document.body.style.removeProperty('--accent');
+    }
     if (!theme) return;
     for (const [field, selector] of Object.entries(themeTargets)) {
       const declarations = theme[field];

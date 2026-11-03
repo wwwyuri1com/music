@@ -16,7 +16,7 @@
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-color: #fa6699 transparent;
+  scrollbar-color: var(--accent) transparent;
   scrollbar-width: thin;
   padding: 0 13px 16px;
 }
@@ -46,7 +46,7 @@
 .presence-menu .track-item .presence-select-mark {
   display: grid;
   place-items: center;
-  color: #fa6699;
+  color: var(--accent);
 }
 .presence-menu .track-item .presence-select-mark svg {width: 19px;height:19px}
 .presence-menu .track-item[aria-pressed="true"] .presence-select-mark svg {fill: currentColor}
