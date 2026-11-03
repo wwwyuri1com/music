@@ -109,6 +109,38 @@
   let loaded = false, loading = null, warnings = [], player = null, generation = 0;
 
   const currentFriend = () => friends.find(friend => friend.asset_no === friendId) || null;
+  let themeStyle = null;
+  const themeTargets = {menu: ':is(#presence-menu, #playlist)', song: '#presence-songbar', player: '.player-shell'};
+
+  function updateFriendTheme() {
+    if (themeStyle) {
+      themeStyle.remove();
+      themeStyle = null;
+    }
+    const friend = presenceEnabled ? currentFriend() : null;
+    if (friend?.image) {
+      document.body.style.setProperty('--presence-still', `url(${JSON.stringify(friend.image)})`);
+      document.body.classList.add('has-presence-still');
+    } else if (document.body.classList.contains('has-presence-still')) {
+      document.body.classList.remove('has-presence-still');
+      document.body.style.removeProperty('--presence-still');
+    }
+    const theme = friend?.theme;
+    if (!theme) return;
+    for (const [field, selector] of Object.entries(themeTargets)) {
+      const declarations = theme[field];
+      if (typeof declarations !== 'string' || !declarations.trim()) continue;
+      if (!themeStyle) {
+        themeStyle = document.createElement('style');
+        document.head.appendChild(themeStyle);
+      }
+      // Parse declarations on a fixed rule, never interpolate CSS into a selector or HTML.
+      const sheet = themeStyle.sheet;
+      const index = sheet.insertRule(`.music-app.presence-mode ${selector} {}`, sheet.cssRules.length);
+      sheet.cssRules[index].style.cssText = declarations;
+    }
+  }
+
   function updateWelcome() {
     if (!welcome) return;
     const message = presenceEnabled ? currentFriend()?.welcome_text || '' : '';
@@ -240,7 +272,7 @@
   function selectFriend(no){
     if(!friends.some(friend=>friend.asset_no===no))return;
     friendId=no;remember(FRIEND_KEY,no);
-    renderFriends();updateWelcome();
+    renderFriends();updateWelcome();updateFriendTheme();
     if(presenceEnabled)startFilm(currentFriend());
     closeMenu();
   }
@@ -316,7 +348,7 @@
           friendId=friends[0]?.asset_no||'';
           if(friendId)remember(FRIEND_KEY,friendId);
         }
-        loaded=true;renderFriends();updateWelcome();
+        loaded=true;renderFriends();updateWelcome();updateFriendTheme();
         if(presenceEnabled)startFilm(currentFriend());
       }catch(error){warnings=[error.message];loaded=true;renderFriends()}
       finally{loading=null}
@@ -335,7 +367,7 @@
     power.setAttribute('aria-label', `Presence Mode ${label}. Switch to ${presenceEnabled ? 'OFF' : 'ON'}`);
     power.title = `Presence Mode ${label}`;
     if(persist)remember(ENABLED_KEY,presenceEnabled?'1':'0');
-    updateWelcome();
+    updateWelcome();updateFriendTheme();
     if(!presenceEnabled)stopFilm();
     else if(!wasEnabled){if(loaded)startFilm(currentFriend());else loadFriends()}
   }
