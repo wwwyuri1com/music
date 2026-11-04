@@ -32,6 +32,8 @@
     currentFavorite: $('#current-favorite'),
     customListPicker: $('#custom-list-picker'),
     playerShell: $('.player-shell'),
+    presenceBtn: $('#presence-btn'),
+    presenceMenu: $('#presence-menu'),
     playlistBtn: $('#playlist-btn'),
     playlist: $('#playlist'),
     closePlaylist: $('#close-playlist'),
@@ -48,6 +50,8 @@
     techCreditLink: $('#music-tech-credit-link'),
     techCredit: $('.playlist-tech-credit'),
     status: $('#status'),
+    normalAudioStatus: $('#normal-audio-status'),
+    normalAnimationStatus: $('#normal-animation-status'),
     metaDescription: $('#meta-description'),
     canonical: $('#canonical'),
     ogTitle: $('#og-title'),
@@ -1065,6 +1069,44 @@
     els.status.textContent = text;
     els.status.hidden = !text;
   }
+
+  // Presence OFF shows the same Loading/Loaded/Failed diagnostics as the P menu.
+  // An attached MP4 is not requested until immersive mode; call it Standby
+  // instead of incorrectly claiming that it has already downloaded.
+  function normalMediaState(media) {
+    if (media?.error) return 'Failed';
+    if (!media || media.readyState < 3 || media.seeking) return 'Loading';
+    if (media.networkState === 2 && !media.currentSrc?.startsWith('blob:')) {
+      const ranges = media.buffered;
+      if (!Number.isFinite(media.duration) || !ranges?.length ||
+          ranges.length !== 1 || ranges.start(0) > .1 ||
+          ranges.end(0) < media.duration - .1) return 'Loading';
+    }
+    return 'Loaded';
+  }
+
+  function updateNormalMediaLabel(element, name, state) {
+    if (!element || element.dataset.state === state) return;
+    element.dataset.state = state;
+    const icon = {Loaded:'✔︎',Loading:'◷',Failed:'✘',Standby:'—','N/A':'—'}[state];
+    element.textContent = `${icon} ${name} ${state}`;
+  }
+
+  function refreshNormalMediaStatus() {
+    updateNormalMediaLabel(els.normalAudioStatus, 'Music',
+      els.audio?.presenceSourceState || normalMediaState(els.audio));
+    const animation = String(tracks[currentIndex]?.Animation || '');
+    const available = /^https?:\/\/[a-z0-9.-]+(?::\d+)?\/ail\/\d{17}\.mp4\?v=[a-f0-9]{16}$/i.test(animation);
+    const video = els.immersiveVideo;
+    let state = available ? 'Standby' : 'N/A';
+    if (available && immersiveMode) {
+      state = video?.dataset?.loadState === 'failed' ? 'Failed' :
+        els.app?.classList.contains('immersive-video-ready') ? 'Loaded' :
+        normalMediaState(video);
+      if (!video?.hasAttribute('src') && state !== 'Failed') state = 'Loading';
+    }
+    updateNormalMediaLabel(els.normalAnimationStatus, 'Animated', state);
+  }
   function updateUrl(track, replace = true) {
     const u = new URL(trackUrl(track));
     history[replace ? 'replaceState' : 'pushState']({}, '', `${u.pathname}${u.search}`);
@@ -1744,16 +1786,19 @@
 
   function renderImmersiveMode() {
     els.app?.classList.toggle('immersive-mode', immersiveMode);
+    if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
     if (!els.immersiveToggle) return;
     els.immersiveToggle.setAttribute('aria-pressed', String(immersiveMode));
     els.immersiveToggle.setAttribute('aria-label', immersiveMode ? 'Exit immersive mode' : 'Enter immersive mode');
     els.immersiveToggle.title = immersiveMode ? 'Exit immersive mode' : 'Immersive mode';
   }
 
-  function stopImmersiveVideo() {
+  function stopImmersiveVideo(failed = false) {
     ++immersiveVideoGeneration;
     els.app?.classList.remove('immersive-video-ready');
     const video = els.immersiveVideo;
+    if (video?.dataset) video.dataset.loadState = failed ? 'failed' : 'idle';
+    if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
     if (!video || !video.hasAttribute('src')) return;
     video.pause();
     video.removeAttribute('src');
@@ -1777,16 +1822,20 @@
     video.loop = true;
     video.playsInline = true;
     video.src = match[1];
+    if (video.dataset) video.dataset.loadState = 'loading';
+    if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
     try {
       Promise.resolve(video.play()).then(() => {
         if (generation === immersiveVideoGeneration && immersiveMode) {
           els.app?.classList.add('immersive-video-ready');
+          if (video.dataset) video.dataset.loadState = 'loaded';
+          if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
         }
       }).catch(() => {
-        if (generation === immersiveVideoGeneration) stopImmersiveVideo();
+        if (generation === immersiveVideoGeneration) stopImmersiveVideo(true);
       });
     } catch (_) {
-      if (generation === immersiveVideoGeneration) stopImmersiveVideo();
+      if (generation === immersiveVideoGeneration) stopImmersiveVideo(true);
     }
   }
 
@@ -1806,163 +1855,93 @@
   }
 
   // =======================================================
-  // HORIZONTAL SWIPE NAVIGATION
-  // Swipe left = next track, swipe right = previous track.
-  // Interactive controls are excluded so seeking/tapping never changes tracks.
+  // HORIZONTAL SWIPE NAVIGATION — now opens panels, never changes tracks.
+  // Vertical gestures open Lyrics or enter/exit immersive mode.
+  // The original Prev/Next buttons and media-session actions remain intact.
   // =======================================================
-  const SWIPE_THRESHOLD = 68;
-  const SWIPE_VELOCITY = 0.48; // px/ms
-  const SWIPE_MIN_FLICK = 30;
-  const SWIPE_MAX_DRAG = 150;
-
-  const swipe = {
-    active: false,
-    locked: false,
-    pointerId: null,
-    startX: 0,
-    startY: 0,
-    lastX: 0,
-    startTime: 0,
-    dx: 0
-  };
-
+  const GESTURE_DISTANCE = 68;
+  const GESTURE_DOMINANCE = 1.25;
+  const GESTURE_MAX_DURATION = 1500;
+  const swipe = { active: false, identifier: null, startX: 0, startY: 0, startTime: 0 };
   let suppressMetaClickUntil = 0;
   let suppressPanelDismissUntil = 0;
 
-  function isSwipeBlockedTarget(target) {
-    if (target?.closest?.('.track-meta-link')) return false;
+  function cancelSwipe() {
+    swipe.active = false;
+    swipe.identifier = null;
+  }
+
+  function menuOrPickerOpen() {
+    return Boolean(
+      els.playlist?.classList.contains('open') ||
+      els.presenceMenu?.classList.contains('open') ||
+      els.lyricsPanel?.classList.contains('open') ||
+      (els.customListPicker && !els.customListPicker.hidden) ||
+      (els.playbackListPicker && !els.playbackListPicker.hidden) ||
+      els.playerShell?.classList.contains('fav-picker-open') ||
+      els.playerShell?.classList.contains('playback-picker-open') ||
+      document.querySelector('.playlist-filters.official-quick-open')
+    );
+  }
+
+  function gestureBlockedTarget(target) {
     return Boolean(target?.closest?.(
-      'button, a, input, select, textarea, label, .disc-wrap, .player-shell, .playlist, .topbar'
+      'button, a, input, select, textarea, label, [contenteditable="true"], ' +
+      '.topbar, .disc-wrap, .player-shell, .playlist, .presence-menu, .lyrics-panel'
     ));
   }
 
-  function setHeroSwipeOffset(dx, tracking = true) {
-    if (!els.hero) return;
-    const limited = Math.max(-SWIPE_MAX_DRAG, Math.min(SWIPE_MAX_DRAG, dx));
-    els.hero.classList.toggle('swipe-tracking', tracking);
-    els.hero.style.setProperty('--swipe-x', `${limited}px`);
-    els.hero.style.setProperty('--swipe-opacity', String(1 - Math.min(0.42, Math.abs(limited) / 430)));
-  }
-
-  function resetHeroSwipe() {
-    if (!els.hero) return;
-    els.hero.classList.remove('swipe-tracking');
-    els.hero.style.setProperty('--swipe-x', '0px');
-    els.hero.style.setProperty('--swipe-opacity', '1');
-  }
-
-  function finishSwipe(direction) {
-    if (!els.hero || !direction) {
-      resetHeroSwipe();
-      return;
-    }
-
-    const wasPlaying = !els.audio.paused && !els.audio.ended;
-    const exitX = direction > 0 ? -Math.min(180, innerWidth * 0.28) : Math.min(180, innerWidth * 0.28);
-    els.hero.classList.remove('swipe-tracking');
-    els.hero.style.setProperty('--swipe-x', `${exitX}px`);
-    els.hero.style.setProperty('--swipe-opacity', '0.18');
-
-    const targetIndex = nextPlayableIndex(direction);
-    if (targetIndex < 0) {
-      resetHeroSwipe();
-      return;
-    }
-
-    window.setTimeout(() => {
-      setTrack(targetIndex, { autoplay: wasPlaying, updateHistory: true });
-
-      // Bring the new track in from the opposite side without flashing.
-      const enterX = -exitX * 0.55;
-      els.hero.classList.add('swipe-no-transition');
-      els.hero.style.setProperty('--swipe-x', `${enterX}px`);
-      els.hero.style.setProperty('--swipe-opacity', '0.35');
-      void els.hero.offsetWidth;
-      els.hero.classList.remove('swipe-no-transition');
-      requestAnimationFrame(() => resetHeroSwipe());
-    }, 115);
-  }
-
-  function cancelSwipe() {
-    swipe.active = false;
-    swipe.locked = false;
-    swipe.pointerId = null;
-    swipe.dx = 0;
-    resetHeroSwipe();
-  }
-
-  if (els.stage && els.hero && window.PointerEvent) {
-    els.stage.addEventListener('pointerdown', e => {
-      if (immersiveMode) return;
-      if (!e.isPrimary || isSwipeBlockedTarget(e.target) || els.playlist.classList.contains('open')) return;
-      // Touch/pen are the intended gestures. Mouse drag is ignored to avoid accidental desktop switching.
-      if (e.pointerType === 'mouse') return;
-
+  // touchend remains observable during vertical swipes on a fullscreen page;
+  // the old PointerEvent drag handler could be cancelled by browser panning.
+  if (els.app) {
+    els.app.addEventListener('touchstart', event => {
+      cancelSwipe();
+      if (event.touches.length !== 1 || menuOrPickerOpen() || gestureBlockedTarget(event.target)) return;
+      const touch = event.touches[0];
       swipe.active = true;
-      swipe.locked = false;
-      swipe.pointerId = e.pointerId;
-      swipe.startX = swipe.lastX = e.clientX;
-      swipe.startY = e.clientY;
+      swipe.identifier = touch.identifier;
+      swipe.startX = touch.clientX;
+      swipe.startY = touch.clientY;
       swipe.startTime = performance.now();
-      swipe.dx = 0;
-      try { els.stage.setPointerCapture(e.pointerId); } catch (_) {}
-    });
+    }, { passive: true });
 
-    els.stage.addEventListener('pointermove', e => {
-      if (!swipe.active || e.pointerId !== swipe.pointerId) return;
-      const dx = e.clientX - swipe.startX;
-      const dy = e.clientY - swipe.startY;
+    els.app.addEventListener('touchmove', event => {
+      if (swipe.active && event.touches.length !== 1) cancelSwipe();
+    }, { passive: true });
 
-      if (!swipe.locked) {
-        if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
-        if (Math.abs(dy) >= Math.abs(dx) * 0.78) {
-          cancelSwipe();
-          return;
-        }
-        swipe.locked = true;
+    els.app.addEventListener('touchend', event => {
+      if (!swipe.active || event.touches.length) { cancelSwipe(); return; }
+      const touch = Array.from(event.changedTouches).find(t => t.identifier === swipe.identifier);
+      const dx = touch ? touch.clientX - swipe.startX : 0;
+      const dy = touch ? touch.clientY - swipe.startY : 0;
+      const elapsed = performance.now() - swipe.startTime;
+      cancelSwipe();
+      if (!touch || elapsed > GESTURE_MAX_DURATION || menuOrPickerOpen() || gestureBlockedTarget(event.target)) return;
+
+      const horizontal = Math.abs(dx) >= GESTURE_DISTANCE && Math.abs(dx) >= Math.abs(dy) * GESTURE_DOMINANCE;
+      const vertical = Math.abs(dy) >= GESTURE_DISTANCE && Math.abs(dy) >= Math.abs(dx) * GESTURE_DOMINANCE;
+      let handled = false;
+      if (immersiveMode) {
+        if (vertical && dy < 0) { setImmersiveMode(false); handled = true; }
+      } else if (horizontal && dx < 0) {
+        els.playlistBtn?.click(); handled = Boolean(els.playlistBtn);
+      } else if (horizontal && dx > 0) {
+        els.presenceBtn?.click(); handled = Boolean(els.presenceBtn);
+      } else if (vertical && dy < 0) {
+        els.lyricsToggle?.click(); handled = Boolean(els.lyricsToggle);
+      } else if (vertical && dy > 0) {
+        setImmersiveMode(true); handled = true;
       }
 
-      swipe.dx = dx;
-      swipe.lastX = e.clientX;
-      setHeroSwipeOffset(dx * 0.72, true);
-      if (e.cancelable) e.preventDefault();
+      if (handled) {
+        suppressPanelDismissUntil = performance.now() + 450;
+        suppressMetaClickUntil = performance.now() + 450;
+        // Avoid the synthetic background click (Presence otherwise toggles playback).
+        if (event.cancelable) event.preventDefault();
+      }
     }, { passive: false });
 
-    const endSwipe = e => {
-      if (!swipe.active || e.pointerId !== swipe.pointerId) return;
-      const dx = swipe.dx || (e.clientX - swipe.startX);
-      const elapsed = Math.max(1, performance.now() - swipe.startTime);
-      const velocity = Math.abs(dx) / elapsed;
-      const wasHorizontalGesture = swipe.locked && Math.abs(dx) >= 9;
-      const shouldChange = swipe.locked && (
-        Math.abs(dx) >= SWIPE_THRESHOLD ||
-        (Math.abs(dx) >= SWIPE_MIN_FLICK && velocity >= SWIPE_VELOCITY)
-      );
-
-      swipe.active = false;
-      swipe.locked = false;
-      swipe.pointerId = null;
-
-      // A horizontal swipe/drag should never be treated as an outside tap that closes panels.
-      if (wasHorizontalGesture) suppressPanelDismissUntil = performance.now() + 450;
-
-      if (!shouldChange) {
-        resetHeroSwipe();
-        return;
-      }
-
-      // Suppress the metadata link click generated by the same release gesture.
-      suppressMetaClickUntil = performance.now() + 450;
-
-      // Finger moves left -> next track (+1). Finger moves right -> previous track (-1).
-      finishSwipe(dx < 0 ? 1 : -1);
-    };
-
-    els.stage.addEventListener('pointerup', endSwipe);
-    els.stage.addEventListener('pointercancel', cancelSwipe);
-    els.stage.addEventListener('lostpointercapture', () => {
-      if (swipe.active) cancelSwipe();
-    });
+    els.app.addEventListener('touchcancel', cancelSwipe, { passive: true });
   }
 
   async function resumePlayback() {
@@ -2030,6 +2009,12 @@
 
   els.prev.addEventListener('click', () => moveTrack(-1, { autoplay: true }));
   els.next.addEventListener('click', () => moveTrack(1, { autoplay: true }));
+  const normalMediaEvents = ['loadstart', 'emptied', 'loadeddata', 'canplay', 'canplaythrough',
+    'playing', 'waiting', 'stalled', 'progress', 'suspend', 'seeking', 'seeked',
+    'error', 'durationchange', 'yuri1:source-state'];
+  for (const media of [els.audio, els.immersiveVideo]) {
+    if (media) normalMediaEvents.forEach(type => media.addEventListener(type, refreshNormalMediaStatus));
+  }
   els.audio.addEventListener('playing', () => {
     clearAutomaticHandoff();
     // Chrome may drop its media notification at the natural end of the
@@ -2364,7 +2349,7 @@
     setImmersiveMode(!immersiveMode);
   });
   els.immersiveVideo?.addEventListener('error', () => {
-    if (immersiveMode) stopImmersiveVideo();
+    if (immersiveMode) stopImmersiveVideo(true);
   });
 
   // Close Tracks/Lyrics only when the user taps the non-interactive background.
