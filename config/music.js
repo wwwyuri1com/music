@@ -34,6 +34,7 @@
     playerShell: $('.player-shell'),
     presenceBtn: $('#presence-btn'),
     presenceMenu: $('#presence-menu'),
+    closePresence: $('#close-presence'),
     playlistBtn: $('#playlist-btn'),
     playlist: $('#playlist'),
     closePlaylist: $('#close-playlist'),
@@ -1862,33 +1863,50 @@
   const GESTURE_DISTANCE = 68;
   const GESTURE_DOMINANCE = 1.25;
   const GESTURE_MAX_DURATION = 1500;
-  const swipe = { active: false, identifier: null, startX: 0, startY: 0, startTime: 0 };
+  const swipe = { active: false, identifier: null, surface: '', startX: 0, startY: 0, startTime: 0 };
   let suppressMetaClickUntil = 0;
   let suppressPanelDismissUntil = 0;
 
   function cancelSwipe() {
     swipe.active = false;
     swipe.identifier = null;
+    swipe.surface = '';
   }
 
-  function menuOrPickerOpen() {
-    return Boolean(
-      els.playlist?.classList.contains('open') ||
-      els.presenceMenu?.classList.contains('open') ||
-      els.lyricsPanel?.classList.contains('open') ||
-      (els.customListPicker && !els.customListPicker.hidden) ||
+  function gestureSurface() {
+    // Submenus and FAV pickers keep their complete gesture lock. Only the
+    // three main panels may recognize their own reverse-to-close gesture.
+    if ((els.customListPicker && !els.customListPicker.hidden) ||
       (els.playbackListPicker && !els.playbackListPicker.hidden) ||
       els.playerShell?.classList.contains('fav-picker-open') ||
       els.playerShell?.classList.contains('playback-picker-open') ||
       document.querySelector('.playlist-filters.official-quick-open')
-    );
+    ) return 'blocked';
+    if (immersiveMode) return 'immersive';
+    const open = [
+      els.playlist?.classList.contains('open') && 'tracks',
+      els.presenceMenu?.classList.contains('open') && 'presence',
+      els.lyricsPanel?.classList.contains('open') && 'lyrics'
+    ].filter(Boolean);
+    return open.length > 1 ? 'blocked' : (open[0] || 'main');
   }
 
-  function gestureBlockedTarget(target) {
+  function gestureBlockedTarget(target, surface) {
+    if (surface === 'tracks' || surface === 'presence' || surface === 'lyrics') {
+      // Swipe on the panel body or its rows, but not an editable control.
+      return Boolean(target?.closest?.('input, select, textarea, [contenteditable="true"]'));
+    }
     return Boolean(target?.closest?.(
       'button, a, input, select, textarea, label, [contenteditable="true"], ' +
       '.topbar, .disc-wrap, .player-shell, .playlist, .presence-menu, .lyrics-panel'
     ));
+  }
+
+  function gestureInsidePanel(target, surface) {
+    const panel = surface === 'tracks' ? els.playlist :
+      surface === 'presence' ? els.presenceMenu :
+      surface === 'lyrics' ? els.lyricsPanel : null;
+    return !panel || Boolean(panel.contains(target));
   }
 
   // touchend remains observable during vertical swipes on a fullscreen page;
@@ -1896,10 +1914,13 @@
   if (els.app) {
     els.app.addEventListener('touchstart', event => {
       cancelSwipe();
-      if (event.touches.length !== 1 || menuOrPickerOpen() || gestureBlockedTarget(event.target)) return;
+      const surface = gestureSurface();
+      if (event.touches.length !== 1 || surface === 'blocked' ||
+          gestureBlockedTarget(event.target, surface) || !gestureInsidePanel(event.target, surface)) return;
       const touch = event.touches[0];
       swipe.active = true;
       swipe.identifier = touch.identifier;
+      swipe.surface = surface;
       swipe.startX = touch.clientX;
       swipe.startY = touch.clientY;
       swipe.startTime = performance.now();
@@ -1915,13 +1936,21 @@
       const dx = touch ? touch.clientX - swipe.startX : 0;
       const dy = touch ? touch.clientY - swipe.startY : 0;
       const elapsed = performance.now() - swipe.startTime;
+      const surface = swipe.surface;
       cancelSwipe();
-      if (!touch || elapsed > GESTURE_MAX_DURATION || menuOrPickerOpen() || gestureBlockedTarget(event.target)) return;
+      if (!touch || elapsed > GESTURE_MAX_DURATION || surface !== gestureSurface() ||
+          gestureBlockedTarget(event.target, surface) || !gestureInsidePanel(event.target, surface)) return;
 
       const horizontal = Math.abs(dx) >= GESTURE_DISTANCE && Math.abs(dx) >= Math.abs(dy) * GESTURE_DOMINANCE;
       const vertical = Math.abs(dy) >= GESTURE_DISTANCE && Math.abs(dy) >= Math.abs(dx) * GESTURE_DOMINANCE;
       let handled = false;
-      if (immersiveMode) {
+      if (surface === 'tracks') {
+        if (horizontal && dx > 0) { els.closePlaylist?.click(); handled = Boolean(els.closePlaylist); }
+      } else if (surface === 'presence') {
+        if (horizontal && dx < 0) { els.closePresence?.click(); handled = Boolean(els.closePresence); }
+      } else if (surface === 'lyrics') {
+        if (vertical && dy > 0) { els.closeLyrics?.click(); handled = Boolean(els.closeLyrics); }
+      } else if (surface === 'immersive') {
         if (vertical && dy < 0) { setImmersiveMode(false); handled = true; }
       } else if (horizontal && dx < 0) {
         els.playlistBtn?.click(); handled = Boolean(els.playlistBtn);
