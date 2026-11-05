@@ -136,7 +136,7 @@
 .presence-film video.is-active {visibility:visible}
 .presence-welcome {
   position: absolute;
-  top: 67px;
+  top: calc(max(18px, env(safe-area-inset-top, 0px)) + 49px);
   left: 30px;
   width: calc(100% - 60px);
   color: #fff;

@@ -15,6 +15,7 @@
   const list = document.getElementById('presence-friend-list');
   const welcome = document.getElementById('presence-welcome');
   const videos = [document.getElementById('presence-video-a'), document.getElementById('presence-video-b')];
+  const coverVideo = document.getElementById('immersive-video');
 
   if (!app || !button || !menu || !power || !powerLabel || !close || !trackButton || !trackPanel) {
     throw new Error('Presence Mode requires the Music popup controls');
@@ -207,21 +208,28 @@
   }
   function refreshStatus(){
     if (!statusLine) return;
-    statusLine.hidden = !presenceEnabled;
-    if (!presenceEnabled) return;
-    let animation = loaded && !currentFriend() ? 'Failed' : 'Loading';
-    if (player) {
-      const active = mediaState(videos[player.active]);
-      const next = player.next && videos[player.next.index];
-      if (player.failed || active === 'Failed' || next?.error) animation = 'Failed';
-      else if (player.ready && active === 'Loaded' && (!next || (player.next.ready && mediaState(next)==='Loaded'))) animation = 'Loaded';
+    let animation;
+    if (presenceEnabled) {
+      animation = loaded && !currentFriend() ? 'Failed' : 'Loading';
+      if (player) {
+        const active = mediaState(videos[player.active]);
+        const next = player.next && videos[player.next.index];
+        if (player.failed || active === 'Failed' || next?.error) animation = 'Failed';
+        else if (player.ready && active === 'Loaded' && (!next || (player.next.ready && mediaState(next)==='Loaded'))) animation = 'Loaded';
+      }
+    } else {
+      // This is the same status row and audio detector as Presence ON. When
+      // OFF, report the normal Music cover video rather than a Friend film.
+      animation = coverVideo?.dataset?.loadState === 'failed' || coverVideo?.error ? 'Failed' :
+        !app.classList.contains('immersive-mode') || !coverVideo?.hasAttribute?.('src') ? 'Loaded' :
+        app.classList.contains('immersive-video-ready') && mediaState(coverVideo)==='Loaded' ? 'Loaded' : 'Loading';
     }
     showLabel(animatedLabel,'Animated',animation);
     showLabel(musicLabel,'Music',audio?.presenceSourceState || mediaState(audio));
   }
   const mediaEvents=['loadstart','emptied','loadeddata','canplay','canplaythrough','playing','waiting','stalled',
     'progress','suspend','seeking','seeked','error','durationchange','yuri1:source-state'];
-  for (const media of [audio,...videos]) {
+  for (const media of [audio,...videos,coverVideo]) {
     if (media) for (const event of mediaEvents) media.addEventListener(event,refreshStatus);
   }
   function report(message) {
@@ -478,6 +486,7 @@
   // The existing immersive toggle owns its state; only dismiss our panel.
   const observer = new MutationObserver(() => {
     if (app.classList.contains('immersive-mode')) closeMenu();
+    refreshStatus();
   });
   observer.observe(app, { attributes: true, attributeFilter: ['class'] });
 

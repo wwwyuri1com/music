@@ -54,28 +54,6 @@ button {
   overflow: hidden;
 }
 
-/* Presence OFF: expose the same media lifecycle states as Presence Mode.
-   This is read-only information and never intercepts player gestures. */
-.normal-media-status {
-  position: absolute;
-  z-index: 4;
-  top: 69px;
-  left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  color: rgba(255,255,255,.80);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .02em;
-  text-shadow: 0 1px 5px rgba(0,0,0,.65);
-  pointer-events: none;
-}
-.music-app.presence-mode .normal-media-status { display: none; }
-.normal-media-status [data-state="Failed"] { color: #ff9ca8; }
-.normal-media-status [data-state="Loaded"] { color: #d4ffd8; }
-
-
 /* =========================================================
    COVER
    ========================================================= */
@@ -154,7 +132,7 @@ button {
 /* Small Music descriptor below the brand; no impact on header flex sizing. */
 .brand-subtitle {
   position: absolute;
-  top: 50px;
+  top: calc(max(18px, env(safe-area-inset-top, 0px)) + 32px);
   left: 30px;
   font-size: .5rem;
   color: #ffffff90;
@@ -2373,7 +2351,7 @@ position: absolute;
 .playlist-group-toggle[data-group-mode="off"] svg{color:darkred}
 
 /* Y1 Official playlists: own data source, readonly; existing FAV banks unchanged. */
-.brand-playlist-title{position:absolute;top:60px;left:30px;font-size:.5rem;color:#fff;white-space:nowrap;pointer-events:none}
+.brand-playlist-title{position:absolute;top:calc(max(18px, env(safe-area-inset-top, 0px)) + 42px);left:30px;font-size:.5rem;color:#fff;white-space:nowrap;pointer-events:none}
 .brand-playlist-title[hidden]{display:none}
 .playback-list-picker{width:96px;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:4px;padding:6px 4px;max-height:min(330px,50dvh);overflow-y:auto}
 .playback-picker-column{display:grid;grid-auto-rows:min-content;justify-items:center;gap:3px;min-width:0}

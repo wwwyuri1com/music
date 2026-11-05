@@ -51,8 +51,6 @@
     techCreditLink: $('#music-tech-credit-link'),
     techCredit: $('.playlist-tech-credit'),
     status: $('#status'),
-    normalAudioStatus: $('#normal-audio-status'),
-    normalAnimationStatus: $('#normal-animation-status'),
     metaDescription: $('#meta-description'),
     canonical: $('#canonical'),
     ogTitle: $('#og-title'),
@@ -1070,44 +1068,16 @@
     els.status.textContent = text;
     els.status.hidden = !text;
   }
-
-  // Presence OFF shows the same Loading/Loaded/Failed diagnostics as the P menu.
-  // An attached MP4 is not requested until immersive mode; call it Standby
-  // instead of incorrectly claiming that it has already downloaded.
-  function normalMediaState(media) {
-    if (media?.error) return 'Failed';
-    if (!media || media.readyState < 3 || media.seeking) return 'Loading';
-    if (media.networkState === 2 && !media.currentSrc?.startsWith('blob:')) {
-      const ranges = media.buffered;
-      if (!Number.isFinite(media.duration) || !ranges?.length ||
-          ranges.length !== 1 || ranges.start(0) > .1 ||
-          ranges.end(0) < media.duration - .1) return 'Loading';
-    }
-    return 'Loaded';
+  const PLAYBACK_RECOVERY_NOTICES = new Set([
+    'Music unavailable. Tap Play to retry.',
+    'Playback blocked by browser. Tap Play.'
+  ]);
+  function clearRecoveredPlaybackNotice() {
+    // A genuine `playing` event means recovery worked. Keep unrelated status
+    // messages (FAV feedback, catalog errors, etc.) untouched.
+    if (PLAYBACK_RECOVERY_NOTICES.has(els.status.textContent)) setStatus('');
   }
 
-  function updateNormalMediaLabel(element, name, state) {
-    if (!element || element.dataset.state === state) return;
-    element.dataset.state = state;
-    const icon = {Loaded:'✔︎',Loading:'◷',Failed:'✘',Standby:'—','N/A':'—'}[state];
-    element.textContent = `${icon} ${name} ${state}`;
-  }
-
-  function refreshNormalMediaStatus() {
-    updateNormalMediaLabel(els.normalAudioStatus, 'Music',
-      els.audio?.presenceSourceState || normalMediaState(els.audio));
-    const animation = String(tracks[currentIndex]?.Animation || '');
-    const available = /^https?:\/\/[a-z0-9.-]+(?::\d+)?\/ail\/\d{17}\.mp4\?v=[a-f0-9]{16}$/i.test(animation);
-    const video = els.immersiveVideo;
-    let state = available ? 'Standby' : 'N/A';
-    if (available && immersiveMode) {
-      state = video?.dataset?.loadState === 'failed' ? 'Failed' :
-        els.app?.classList.contains('immersive-video-ready') ? 'Loaded' :
-        normalMediaState(video);
-      if (!video?.hasAttribute('src') && state !== 'Failed') state = 'Loading';
-    }
-    updateNormalMediaLabel(els.normalAnimationStatus, 'Animated', state);
-  }
   function updateUrl(track, replace = true) {
     const u = new URL(trackUrl(track));
     history[replace ? 'replaceState' : 'pushState']({}, '', `${u.pathname}${u.search}`);
@@ -1787,7 +1757,6 @@
 
   function renderImmersiveMode() {
     els.app?.classList.toggle('immersive-mode', immersiveMode);
-    if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
     if (!els.immersiveToggle) return;
     els.immersiveToggle.setAttribute('aria-pressed', String(immersiveMode));
     els.immersiveToggle.setAttribute('aria-label', immersiveMode ? 'Exit immersive mode' : 'Enter immersive mode');
@@ -1799,7 +1768,6 @@
     els.app?.classList.remove('immersive-video-ready');
     const video = els.immersiveVideo;
     if (video?.dataset) video.dataset.loadState = failed ? 'failed' : 'idle';
-    if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
     if (!video || !video.hasAttribute('src')) return;
     video.pause();
     video.removeAttribute('src');
@@ -1824,13 +1792,11 @@
     video.playsInline = true;
     video.src = match[1];
     if (video.dataset) video.dataset.loadState = 'loading';
-    if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
     try {
       Promise.resolve(video.play()).then(() => {
         if (generation === immersiveVideoGeneration && immersiveMode) {
           els.app?.classList.add('immersive-video-ready');
           if (video.dataset) video.dataset.loadState = 'loaded';
-          if (typeof refreshNormalMediaStatus === 'function') refreshNormalMediaStatus();
         }
       }).catch(() => {
         if (generation === immersiveVideoGeneration) stopImmersiveVideo(true);
@@ -1857,7 +1823,7 @@
 
   // =======================================================
   // HORIZONTAL SWIPE NAVIGATION — now opens panels, never changes tracks.
-  // Vertical gestures open Lyrics or enter/exit immersive mode.
+  // Vertical gestures enter/exit immersive mode; Lyrics uses buttons only.
   // The original Prev/Next buttons and media-session actions remain intact.
   // =======================================================
   const GESTURE_DISTANCE = 68;
@@ -1875,24 +1841,25 @@
 
   function gestureSurface() {
     // Submenus and FAV pickers keep their complete gesture lock. Only the
-    // three main panels may recognize their own reverse-to-close gesture.
+    // Tracks and Presence panels may recognize reverse-to-close gestures.
+    // Lyrics deliberately has no swipe controls in either direction.
     if ((els.customListPicker && !els.customListPicker.hidden) ||
       (els.playbackListPicker && !els.playbackListPicker.hidden) ||
       els.playerShell?.classList.contains('fav-picker-open') ||
       els.playerShell?.classList.contains('playback-picker-open') ||
-      document.querySelector('.playlist-filters.official-quick-open')
+      document.querySelector('.playlist-filters.official-quick-open') ||
+      els.lyricsPanel?.classList.contains('open')
     ) return 'blocked';
     if (immersiveMode) return 'immersive';
     const open = [
       els.playlist?.classList.contains('open') && 'tracks',
-      els.presenceMenu?.classList.contains('open') && 'presence',
-      els.lyricsPanel?.classList.contains('open') && 'lyrics'
+      els.presenceMenu?.classList.contains('open') && 'presence'
     ].filter(Boolean);
     return open.length > 1 ? 'blocked' : (open[0] || 'main');
   }
 
   function gestureBlockedTarget(target, surface) {
-    if (surface === 'tracks' || surface === 'presence' || surface === 'lyrics') {
+    if (surface === 'tracks' || surface === 'presence') {
       // Swipe on the panel body or its rows, but not an editable control.
       return Boolean(target?.closest?.('input, select, textarea, [contenteditable="true"]'));
     }
@@ -1904,8 +1871,7 @@
 
   function gestureInsidePanel(target, surface) {
     const panel = surface === 'tracks' ? els.playlist :
-      surface === 'presence' ? els.presenceMenu :
-      surface === 'lyrics' ? els.lyricsPanel : null;
+      surface === 'presence' ? els.presenceMenu : null;
     return !panel || Boolean(panel.contains(target));
   }
 
@@ -1948,16 +1914,12 @@
         if (horizontal && dx > 0) { els.closePlaylist?.click(); handled = Boolean(els.closePlaylist); }
       } else if (surface === 'presence') {
         if (horizontal && dx < 0) { els.closePresence?.click(); handled = Boolean(els.closePresence); }
-      } else if (surface === 'lyrics') {
-        if (vertical && dy > 0) { els.closeLyrics?.click(); handled = Boolean(els.closeLyrics); }
       } else if (surface === 'immersive') {
         if (vertical && dy < 0) { setImmersiveMode(false); handled = true; }
       } else if (horizontal && dx < 0) {
         els.playlistBtn?.click(); handled = Boolean(els.playlistBtn);
       } else if (horizontal && dx > 0) {
         els.presenceBtn?.click(); handled = Boolean(els.presenceBtn);
-      } else if (vertical && dy < 0) {
-        els.lyricsToggle?.click(); handled = Boolean(els.lyricsToggle);
       } else if (vertical && dy > 0) {
         setImmersiveMode(true); handled = true;
       }
@@ -2038,14 +2000,9 @@
 
   els.prev.addEventListener('click', () => moveTrack(-1, { autoplay: true }));
   els.next.addEventListener('click', () => moveTrack(1, { autoplay: true }));
-  const normalMediaEvents = ['loadstart', 'emptied', 'loadeddata', 'canplay', 'canplaythrough',
-    'playing', 'waiting', 'stalled', 'progress', 'suspend', 'seeking', 'seeked',
-    'error', 'durationchange', 'yuri1:source-state'];
-  for (const media of [els.audio, els.immersiveVideo]) {
-    if (media) normalMediaEvents.forEach(type => media.addEventListener(type, refreshNormalMediaStatus));
-  }
   els.audio.addEventListener('playing', () => {
     clearAutomaticHandoff();
+    clearRecoveredPlaybackNotice();
     // Chrome may drop its media notification at the natural end of the
     // previous track; reassert playback state once the new audio is audible.
     updateMediaSessionPlaybackState();
