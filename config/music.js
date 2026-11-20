@@ -24,6 +24,7 @@
     next: $('#next'),
     metaLink: $('#track-meta-link'),
     repeatOne: $('#repeat-one'),
+    rangePicker: $('#track-range-picker'),
     playbackAll: $('#playback-all'),
     playbackMode: $('#playback-mode'),
     playbackModeMark: $('#playback-mode-mark'),
@@ -165,7 +166,12 @@
     repeatOne = restoredPlayerState.repeatOne;
   }
 
-  let playbackList = 0; // 0 = ALL Track, 1..6 = custom list playback pool
+  let playbackList = 0; // 0 = All, 1..6 = personal FAV, 'oc'/'story' = group in lastPlaybackList.
+  const groupChoices = {};
+  const groupPools = new Map();
+  function isGroupRange(range) {
+    return range === 'oc' || range === 'story';
+  }
   let lastPlaybackList = 1; // remembers the last FAV bank while ALL Track is active
   let trackListView = 1; // 1..6 = selected custom-list context
   let contentFilter = 'ALL'; // ALL | FAV_ONLY | any Type value
@@ -246,6 +252,14 @@
     playbackList = validListId(restoredPlayerState.playbackList);
     lastPlaybackList = validListId(restoredPlayerState.lastPlaybackList) || playbackList || 1;
     trackListView = validListId(restoredPlayerState.trackListView) || playbackList || lastPlaybackList || 1;
+    for (const {id} of LIST_DEFS) {
+      const saved = restoredPlayerState.groupChoices?.[id];
+      groupChoices[id] = {};
+      for (const mode of ['oc', 'story']) {
+        if (typeof saved?.[mode] === 'string') groupChoices[id][mode] = saved[mode];
+      }
+    }
+    if (isGroupRange(restoredPlayerState.playbackList)) playbackList = restoredPlayerState.playbackList;
     if (typeof restoredPlayerState.officialId === 'string') officialId = restoredPlayerState.officialId;
     if (typeof restoredPlayerState.lastOfficialId === 'string') lastOfficialId = restoredPlayerState.lastOfficialId;
     // Old snapshots have no source marker: preserve their original personal FAV behavior.
@@ -278,6 +292,7 @@
   }
 
   function listTrackIndices(listId) {
+    if (isGroupRange(listId)) return groupPools.get(groupChoices[lastPlaybackList]?.[listId]) || [];
     if (!listId) return tracks.map((_, i) => i);
     return tracks.map((t, i) => isInList(t, listId) ? i : -1).filter(i => i >= 0);
   }
@@ -325,6 +340,7 @@
       trackKey: track ? trackKey(track) : '',
       position: Number.isFinite(rawPosition) && rawPosition >= 0 ? rawPosition : 0,
       playbackList,
+      groupChoices,
       lastPlaybackList,
       officialId,
       lastOfficialId,
@@ -384,8 +400,10 @@
     if (els.playbackAll) {
       els.playbackAll.classList.toggle('active', !favOn);
       els.playbackAll.setAttribute('aria-pressed', String(!favOn));
-      els.playbackAll.setAttribute('aria-label', favOn ? 'Switch to ALL Track' : 'ALL Track active');
-      els.playbackAll.title = favOn ? 'Switch to ALL Track' : 'ALL Track';
+      const label = playbackList === 'oc' ? 'OC' : playbackList === 'story' ? 'Series' : 'All';
+      els.playbackAll.querySelector('.playback-mode-all span').textContent = label;
+      els.playbackAll.title = 'Choose playback range';
+      els.playbackAll.setAttribute('aria-label', `Choose playback range: ${label} Track`);
     }
   }
 
@@ -499,6 +517,7 @@
   }
 
   function closePlaybackListPicker() {
+    closeRangePicker();
     if (!els.playbackListPicker || !els.playbackMode) return;
     els.playbackListPicker.hidden = true;
     els.playbackMode.setAttribute('aria-expanded', 'false');
@@ -509,6 +528,7 @@
     if (!els.playbackListPicker || !els.playbackMode) return;
     const willOpen = forceOpen || els.playbackListPicker.hidden;
     if (willOpen) {
+      closeRangePicker();
       closeListPicker();
       renderPlaybackListPicker();
       els.playbackListPicker.hidden = false;
@@ -758,7 +778,7 @@
 
   function switchToAllTrack({ notify = false } = {}) {
     if (officialId) lastPlaybackSource='official';
-    else if (playbackList) { lastPlaybackList=playbackList; lastPlaybackSource='personal'; }
+    else if (validListId(playbackList)) { lastPlaybackList=playbackList; lastPlaybackSource='personal'; }
     officialId='';
     playbackList = 0;
     resetNextPrefetchDelay();
@@ -1512,11 +1532,11 @@
 
   // Group mode only changes the list presentation. It does not change the
   // playback pool, track identity, FAV membership or original track order.
-  function playlistSections(visible) {
+  function playlistSections(visible, mode = groupMode) {
     // Off is a flat, single-copy view in the existing playback/filtered order.
     // It does not participate in OC, Type or Story folder classification.
-    if (groupMode === 'off') return visible.map(entry => ({entry}));
-    if (groupMode === 'oc') {
+    if (mode === 'off') return visible.map(entry => ({entry}));
+    if (mode === 'oc') {
       const active = [];
       const classified = new Set();
       // Explicit W order controls folder order. Every group tests the ORIGINAL
@@ -1676,6 +1696,39 @@
         <span class="track-folder-name">${escapeHtml(title)}</span>
         <span class="track-folder-count">${entries.length}</span>`;
       toggle.title = `${groupMode === 'oc' ? 'OC' : 'Story'}: ${title}`;
+      let updateArrow;
+      if (els.rangePicker && !officialId && contentFilter === 'ALL') {
+        const mode = groupMode;
+        const bank = trackListView;
+        const arrow = document.createElement('button');
+        arrow.type = 'button';
+        arrow.className = 'track-folder-play';
+        folder.classList.add('has-play');
+        updateArrow = () => {
+          const selected = groupChoices[bank]?.[mode] === key;
+          const remove = selected && !items.hidden;
+          const path = remove
+            ? '<path d="m10.215 4.56 9.79 5.71a2 2 0 0 1 .003 3.458l-.393.23 M16.042 16.042l-8.034 4.686A2 2 0 0 1 5 19V5 M2 2l20 20"/>'
+            : '<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>';
+          arrow.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="${selected ? '#ffffff8c' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;
+          arrow.title = remove ? `Clear ${title} selection` : `Play ${title} from the first track`;
+          arrow.setAttribute('aria-label', arrow.title);
+          arrow.setAttribute('aria-pressed', String(selected));
+        };
+        arrow.addEventListener('click', () => {
+          const choices = groupChoices[bank] ||= {};
+          if (choices[mode] === key && !items.hidden) {
+            delete choices[mode];
+            if (playbackList === mode && bank === lastPlaybackList) switchToAllTrack();
+            else { updateArrow(); persistPlayerState(); }
+          } else {
+            choices[mode] = key;
+            activateGroupRange(mode, bank, true);
+          }
+        });
+        folder.appendChild(arrow);
+        updateArrow();
+      }
       toggle.addEventListener('click', () => {
         const next = toggle.getAttribute('aria-expanded') !== 'true';
         if (!folderOpenState) folderOpenState = new Map();
@@ -1683,9 +1736,12 @@
         saveFolderState();
         toggle.setAttribute('aria-expanded', String(next));
         items.hidden = !next;
+        updateArrow?.();
       });
       entries.forEach(entry => renderTrackRow(entry, items));
-      folder.append(toggle, items);
+      if (updateArrow) folder.prepend(toggle);
+      else folder.appendChild(toggle);
+      folder.appendChild(items);
       els.trackList.appendChild(folder);
     });
     // Credit belongs after the rendered tracks, inside the scrolling list.
@@ -1717,6 +1773,12 @@
 
       const selectTrack = () => {
         if(typeof officialId!=='undefined' && officialId){setTrack(i,{autoplay:!els.audio.paused,updateHistory:true});els.playlist.classList.remove('open');return;}
+        if (playbackList === 'oc' || playbackList === 'story') {
+          if (!listTrackIndices(playbackList).includes(i)) switchToAllTrack();
+          setTrack(i, { autoplay: !els.audio.paused, updateHistory: true });
+          els.playlist.classList.remove('open');
+          return;
+        }
         const sourceList = Number(trackListView) || lastPlaybackList || 1;
         // A track chosen from a custom-list context belongs to that playback context.
         // Do not silently fall back to ALL merely because the row itself is not yet
@@ -1843,7 +1905,8 @@
     // Submenus and FAV pickers keep their complete gesture lock. Only the
     // Tracks and Presence panels may recognize reverse-to-close gestures.
     // Lyrics deliberately has no swipe controls in either direction.
-    if ((els.customListPicker && !els.customListPicker.hidden) ||
+    if ((els.rangePicker && !els.rangePicker.hidden) ||
+      (els.customListPicker && !els.customListPicker.hidden) ||
       (els.playbackListPicker && !els.playbackListPicker.hidden) ||
       els.playerShell?.classList.contains('fav-picker-open') ||
       els.playerShell?.classList.contains('playback-picker-open') ||
@@ -1937,9 +2000,9 @@
 
   async function resumePlayback() {
     fallbackFromEmptyPlaybackList();
-    if (playbackList && !isInList(tracks[currentIndex], playbackList)) {
+    if (playbackList) {
       const indices = listTrackIndices(playbackList);
-      if (indices.length) {
+      if (indices.length && !indices.includes(currentIndex)) {
         setTrack(indices[0], { autoplay: true, updateHistory: true });
         return;
       }
@@ -2120,13 +2183,69 @@
     persistPlayerState();
   });
 
-  els.playbackAll?.addEventListener('click', () => {
-    switchToAllTrack();
+  function closeRangePicker() {
+    if (!els.rangePicker) return;
+    els.rangePicker.hidden = true;
+    els.playbackAll.setAttribute('aria-expanded', 'false');
+    els.playerShell?.classList.remove('range-picker-open');
+  }
+
+  function activateGroupRange(mode, bank, restart) {
+    const indices = groupPools.get(groupChoices[bank]?.[mode]);
+    if (!indices?.length) return;
+    const wasPlaying = !els.audio.paused && !els.audio.ended;
+    officialId = '';
+    lastPlaybackSource = 'personal';
+    trackListView = lastPlaybackList = bank;
+    playbackList = mode;
+    resetNextPrefetchDelay();
+    renderPlaybackMode();
+    refreshTrackListTabs();
+    if (restart || !indices.includes(currentIndex)) {
+      setTrack(indices[0], { autoplay: restart || wasPlaying, updateHistory: true });
+    } else {
+      renderPlaylist();
+      persistPlayerState();
+    }
+  }
+
+  els.playbackAll?.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = els.rangePicker.hidden;
     closePlaybackListPicker();
+    closeListPicker();
+    if (!open) return;
+    const official = officialId || lastPlaybackSource === 'official';
+    for (const button of els.rangePicker.children) {
+      const range = button.dataset.range;
+      const group = isGroupRange(range);
+      button.hidden = Boolean(group && official);
+      button.setAttribute('aria-disabled', String(group && !groupPools.has(groupChoices[lastPlaybackList]?.[range])));
+      button.setAttribute('aria-pressed', String(group ? playbackList === range : !playbackList && !officialId));
+    }
+    els.rangePicker.hidden = false;
+    els.playbackAll.setAttribute('aria-expanded', 'true');
+    els.playerShell?.classList.add('range-picker-open');
+  });
+
+  els.rangePicker?.addEventListener('click', e => {
+    const button = e.target.closest('button[data-range]');
+    if (!button) return;
+    const mode = button.dataset.range;
+    if (button.getAttribute('aria-disabled') === 'true') {
+      const label = mode === 'oc' ? 'an OC' : 'a Series';
+      const hint = `Choose ${label} group in the Track List for this FAV first.`;
+      setStatus(hint);
+      window.setTimeout(() => { if (els.status.textContent === hint) setStatus(''); }, 2600);
+      return;
+    }
+    closeRangePicker();
+    if (mode === 'all') switchToAllTrack();
+    else activateGroupRange(mode, lastPlaybackList, false);
   });
   els.playbackMode?.addEventListener('click', e => {
     e.stopPropagation();
-    if (!playbackList&&!officialId) {
+    if (!validListId(playbackList)&&!officialId) {
       // ALL remembers the last *source*, not always FAV 1–6.
       if (lastPlaybackSource==='official' && officialDef(lastOfficialId)) activateOfficial(lastOfficialId);
       else activateFavList(lastPlaybackList);
@@ -2155,6 +2274,7 @@
         indicator?.setAttribute('aria-expanded','false');
       }
     }
+    if (els.rangePicker && !els.rangePicker.hidden && !els.rangePicker.contains(e.target)) closeRangePicker();
     if (els.customListPicker && !els.customListPicker.hidden) {
       if (!els.currentFavorite?.contains(e.target) && !els.customListPicker.contains(e.target)) closeListPicker();
     }
@@ -2165,6 +2285,7 @@
 
   document.addEventListener('keydown', e=>{
     if(e.key!=='Escape')return;
+    if (!els.rangePicker.hidden) { closeRangePicker(); els.playbackAll.focus(); }
     const tabs=$('.playlist-filters');
     if(!tabs?.classList.contains('official-quick-open'))return;
     tabs.querySelector('.official-quick-picker')?.remove();
@@ -2181,7 +2302,7 @@
     if (willOpen) {
       // TRACK LIST always opens on the same custom list shown in the lower-left
       // playback switch. If ALL is active, remember the most recently used list.
-      if(!officialId)trackListView = playbackList || lastPlaybackList || 1;
+      if(!officialId)trackListView = validListId(playbackList) || lastPlaybackList || 1;
       refreshTrackListTabs();
       renderPlaylist();
     }
@@ -2394,6 +2515,13 @@
       // Do not restore a dead official selection that has no published tracks.
       if(officialId&&!officialIndices().length)officialId='';
       if(officialId){playbackList=0;contentFilter='ALL';lastPlaybackSource='official';}
+      const entries = tracks.map((t, i) => ({t, i}));
+      for (const mode of ['oc', 'story']) {
+        for (const {folder} of playlistSections(entries, mode)) {
+          if (folder) groupPools.set(folder.key, folder.entries.map(entry => entry.i));
+        }
+      }
+      if (isGroupRange(playbackList) && !listTrackIndices(playbackList).length) playbackList = 0;
       // Keep existing 6 favorite banks after machine-ID normalization.
       let migratedLists = false;
       for (const set of customLists.values()) {

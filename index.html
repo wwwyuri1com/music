@@ -214,13 +214,18 @@
           <div class="controls-side">
             <div class="playback-switch" role="group" aria-label="Playback pool">
               <button id="playback-all" class="control-btn playback-switch-half playback-all-btn" type="button"
-                      aria-label="Use all tracks" aria-pressed="true" title="ALL Track">
+                      aria-controls="track-range-picker" aria-expanded="false" aria-label="Choose playback range" aria-pressed="true" title="ALL Track">
                 <span class="playback-mode-all" aria-hidden="true"><span>ALL</span><span>Track</span></span>
               </button>
               <button id="playback-mode" class="control-btn playback-switch-half playback-mode-btn" type="button"
                       aria-label="Choose FAV playlist" aria-pressed="false" aria-expanded="false" title="FAV playlists">
                 <span id="playback-mode-mark" class="playback-mode-mark" aria-hidden="true"></span>
               </button>
+            </div>
+            <div id="track-range-picker" class="custom-list-picker track-range-picker" role="group" aria-label="Choose playback range" hidden>
+              <button type="button" data-range="oc">OC<br>Track</button>
+              <button type="button" data-range="story">Series<br>Track</button>
+              <button type="button" data-range="all">All<br>Track</button>
             </div>
             <div id="playback-list-picker" class="custom-list-picker playback-list-picker" role="group" aria-label="Choose playback list" hidden></div>
           </div>
